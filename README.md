@@ -1,10 +1,15 @@
 # Defacing pipeline
+[![arXiv](https://img.shields.io/badge/arXiv-2505.12999-b31b1b.svg)](https://arxiv.org/abs/2505.12999)
+
 This defacing pipeline is based on affine registration with BRAINSFit and resampling with BRAINSResample.
 It was developed primarily for input images of brains with a reduced FOV (slabs) where the affine registration often fails.
 To access the quality of the initial fully automatic defacing step, we provide a second script that creates 3D visualizations
 of the defaced images in GIF format.
 As a fallback solution for cases where the defacing failed, an input transform can be produced by selecting landmark pairs
 in the template and the input image. This is done in 3D Slicer. 
+
+Jump to the section [Alternative Registration and Defacing with HD-BET](#alternative-registration-and-defacing-with-hd-bet) to use the pipeline from [arXiv](https://arxiv.org/abs/2505.12999).
+
 
 ## Steps
 1. Affine registration of the input image to a template image (that has a template face mask associated with it)
