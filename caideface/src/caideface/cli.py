@@ -1,0 +1,127 @@
+"""Command-line interface for caideface."""
+
+import argparse
+import logging
+import sys
+
+from .pipeline import DefacePipeline
+from .reorient import reorient_batch
+from .skull_strip import skull_strip_batch, get_default_device
+from .register import deface_batch
+
+
+def _setup_logging(verbose: bool):
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+def main():
+    # Shared parent so -v works on any subcommand
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
+
+    parser = argparse.ArgumentParser(
+        prog="caideface",
+        description="MRI defacing pipeline from cai4cai: reorientation, skull-stripping, and affine-based defacing.",
+        parents=[parent],
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # --- run: full pipeline ---
+    run_parser = subparsers.add_parser("run", help="Run the full defacing pipeline", parents=[parent])
+    run_parser.add_argument("input_dir", help="Directory containing raw NIfTI files")
+    run_parser.add_argument("output_dir", help="Root output directory")
+    run_parser.add_argument("--brainsfit", required=True, help="Path to BRAINSFit executable")
+    run_parser.add_argument("--brainsresample", required=True, help="Path to BRAINSResample executable")
+    run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET (auto-detected if omitted)")
+    run_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable HD-BET test-time augmentation (default: disabled)")
+    run_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Brain mask dilation in mm (default: 14)")
+    run_parser.add_argument("--background", type=float, default=0, help="Background value for defaced voxels (default: 0 for MRI, use -1024 for CT)")
+    run_parser.add_argument("--template", default=None, help="Custom MNI152 skull-stripped template (uses bundled if omitted)")
+    run_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space (uses bundled if omitted)")
+    run_parser.add_argument("--steps", default="all", help="Steps to run: all, or comma-separated: reorient,skull_strip,deface")
+
+    # --- reorient ---
+    reorient_parser = subparsers.add_parser("reorient", help="Step 1: Reorient NIfTI scans to MNI152", parents=[parent])
+    reorient_parser.add_argument("input_dir", help="Directory with NIfTI files")
+    reorient_parser.add_argument("output_dir", help="Output directory for reoriented files")
+
+    # --- skull-strip ---
+    ss_parser = subparsers.add_parser("skull-strip", help="Step 2: Skull-strip with HD-BET", parents=[parent])
+    ss_parser.add_argument("input_dir", help="Directory with reoriented NIfTI files")
+    ss_parser.add_argument("output_dir", help="Output directory for HD-BET results")
+    ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET")
+    ss_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable test-time augmentation")
+    ss_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Dilation in mm")
+
+    # --- deface ---
+    deface_parser = subparsers.add_parser("deface", help="Step 3: Register and deface", parents=[parent])
+    deface_parser.add_argument("reoriented_dir", help="Directory with reoriented scans (Step 1 output)")
+    deface_parser.add_argument("hdbet_dir", help="Directory with HD-BET results (Step 2 output)")
+    deface_parser.add_argument("output_dir", help="Output directory for defaced scans")
+    deface_parser.add_argument("--brainsfit", required=True, help="Path to BRAINSFit executable")
+    deface_parser.add_argument("--brainsresample", required=True, help="Path to BRAINSResample executable")
+    deface_parser.add_argument("--template", default=None, help="Custom MNI152 skull-stripped template")
+    deface_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space")
+    deface_parser.add_argument("--background", type=float, default=0, help="Background value (default: 0 for MRI, use -1024 for CT)")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    _setup_logging(args.verbose)
+
+    if args.command == "run":
+        pipeline = DefacePipeline(
+            brainsfit_path=args.brainsfit,
+            brainsresample_path=args.brainsresample,
+            device=args.device,
+            disable_tta=args.no_tta,
+            desired_dilation_mm=args.dilation_mm,
+            background_value=args.background,
+            target_path=args.template,
+            face_mask_path=args.face_mask,
+        )
+        results = pipeline.run(args.input_dir, args.output_dir, steps=args.steps)
+        failed = results.get("failed_defacing", [])
+        if failed:
+            print(f"\n{len(failed)} scan(s) failed to deface. See output log for details.")
+            sys.exit(1)
+
+    elif args.command == "reorient":
+        reorient_batch(args.input_dir, args.output_dir)
+
+    elif args.command == "skull-strip":
+        skull_strip_batch(
+            args.input_dir,
+            args.output_dir,
+            device=args.device,
+            disable_tta=args.no_tta,
+            desired_dilation_mm=args.dilation_mm,
+        )
+
+    elif args.command == "deface":
+        failed = deface_batch(
+            reoriented_dir=args.reoriented_dir,
+            hdbet_dir=args.hdbet_dir,
+            output_dir=args.output_dir,
+            brainsfit_path=args.brainsfit,
+            brainsresample_path=args.brainsresample,
+            target_path=args.template,
+            face_mask_path=args.face_mask,
+            background_value=args.background,
+        )
+        if failed:
+            print(f"\n{len(failed)} scan(s) failed. See output log.")
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
