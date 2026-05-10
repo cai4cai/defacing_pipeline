@@ -1,160 +1,208 @@
-# Defacing pipeline
+# Defacing Pipeline
+
 [![arXiv](https://img.shields.io/badge/arXiv-2505.12999-b31b1b.svg)](https://arxiv.org/abs/2505.12999)
 
-This defacing pipeline is based on affine registration with BRAINSFit and resampling with BRAINSResample.
-It was developed primarily for input images of brains with a reduced FOV (slabs) where the affine registration often fails.
-To access the quality of the initial fully automatic defacing step, we provide a second script that creates 3D visualizations
-of the defaced images in GIF format.
-As a fallback solution for cases where the defacing failed, an input transform can be produced by selecting landmark pairs
-in the template and the input image. This is done in 3D Slicer. 
+A head MRI defacing pipeline based on affine registration that removes facial features while preserving brain structures. Described in *"A Generalisable Head MRI Defacing Pipeline: Evaluation on 2,566 Meningioma Scans"* ([arXiv:2505.12999](https://arxiv.org/abs/2505.12999)).
 
-Jump to the section [Alternative Registration and Defacing with HD-BET](#alternative-registration-and-defacing-with-hd-bet) to use the pipeline from [arXiv](https://arxiv.org/abs/2505.12999).
+<p align="center">
+  <img src="Pipeline_smaller.svg" alt="Pipeline overview" width="100%">
+</p>
 
+## Table of Contents
 
-## Steps
-1. Affine registration of the input image to a template image (that has a template face mask associated with it)
-2. Transforming the template face mask to the input image space by inverting the affine transform
-3. Applying the resampled template face mask to the input image to remove facial features
-4. Creation of 3D rendering of the defaced image with 3D Slicer
-5. Manually confirm the success of the defacing or mark as failed for each input image
-6. If the defacing failed, manual landmark selection in 3D Slicer to produce a manual affine transformation
-7. Repeat steps 2-4 based on the manual affine transformation
+- [Quick Start (pip)](#quick-start-pip)
+- [Pipeline Overview](#pipeline-overview)
+  - [Why Skull-Stripping?](#why-skull-stripping)
+- [Using the Notebooks](#using-the-notebooks)
+  - [Recommended: With Skull-Stripping](#recommended-with-skull-stripping)
+  - [Legacy: Without Skull-Stripping](#legacy-without-skull-stripping)
+- [Quality Assessment](#quality-assessment)
+  - [3D Rendering](#step-4-3d-rendering-of-defaced-images)
+  - [Manual Assessment](#step-5-manual-assessment)
+  - [Manual Landmark Registration](#steps-6-7-manual-landmark-registration-fallback)
+- [Requirements and Setup](#requirements-and-setup)
+  - [Extracting BRAINSFit and BRAINSResample from 3D Slicer](#extracting-brainsfit-and-brainsresample-from-3d-slicer)
+- [How to Cite](#how-to-cite)
 
-## Requirements
-The code was tested on Ubuntu 20.04 with Python 3.11
-1. BRAINSFit and BRAINSResample binaries from [BRAINSTools](https://github.com/BRAINSia/BRAINSTools) (Note: The binaries
-are dependent on shared libraries that need to be installed as well) (The scripts were tested with BRAINSFit version: 5.4.0 and 
-BRAINSResample version: 5.7.0). See [below](#extracting-brainsfit-and-brainsresample-binaries-and-shared-libraries-from-3d-slicer) for instructions on how to extract the binaries and shared libraries from
-a 3D Slicer installation.
-2. [3D Slicer](https://www.slicer.org/) (tested with version 5.2) with the Jupyter Notebook extension installed to create 3D renderings of the defaced images
-and to perform landmark registration for failed cases
-3. [ITK-SNAP](http://www.itksnap.org) and [MPV](https://mpv.io/) for viewing of the 3D renderings
+---
 
-## Example run
-The example run is based on two test images to be defaced, 
-a T1 image [IXI002-Guys-0828-T1.nii.gz](data/example_input_images/IXI002-Guys-0828-T1/IXI002-Guys-0828-T1.nii.gz)
-and a T2 image [IXI002-Guys-0828-T2.nii.gz](data/example_input_images/IXI002-Guys-0828-T2/IXI002-Guys-0828-T2.nii.gz).
-The T2 image also comes with a 
-manual affine transform [Transform_to_template.txt](data/example_input_images/IXI002-Guys-0828-T2/Transform_to_template.txt) 
-to explain how the pipeline deals with previously failed defacing attempts. How to create the manual transform is explained
-further down.
+## Quick Start (pip)
 
-The [template image](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/mni_icbm152_t1_tal_nlin_sym_55_ext.nii) used in this project is sourced from the [ICBM 152 Extended Nonlinear Atlases (2020)](https://nist.mni.mcgill.ca/icbm-152-extended-nonlinear-atlases-2020/).
+The fastest way to use the pipeline is via the [`caideface`](caideface/) Python package:
 
-The [template mask](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/t1_mask.nii.gz) was generated using [ITK-SNAP](http://www.itksnap.org) to remove facial features while retaining as much clinical information as possible.
+```bash
+pip install caideface
+```
 
-All outputs are written to the [example_output](data/example_output) directory. If you want to rerun the example, 
-delete the contents of the directory first, because the notebook will not overwrite existing files.
+Then run the full pipeline (reorientation, skull-stripping, registration and defacing) in one command:
 
-## Steps 1-3: Automatic defacing steps
-These steps are performed by the notebook [[1]deface_with_brainsfit.ipynb](%5B1%5Ddeface_with_brainsfit.ipynb)
-In the second cell the paths to the input images, and output directories need to be set. One also needs to set a list
-of existing manual transforms (if none exist, set it to a list of None of the same length as the input images list). In
-this example, we have no manual transform for the T1 image but we have one for the T2 image, so the list looks like this:
+```bash
+caideface run ./input_nifti ./output \
+  --brainsfit /path/to/BRAINSFit \
+  --brainsresample /path/to/BRAINSResample
+```
+
+This creates three subdirectories under `./output`:
+- `reoriented/` -- reoriented scans
+- `hdbet/` -- skull-stripped scans and masks
+- `defaced/` -- final defaced scans
+
+See the [caideface README](caideface/README.md) for the full CLI reference, individual step usage, installation options, and output structure.
+
+> **Note:** BRAINSFit and BRAINSResample are bundled with [3D Slicer](https://www.slicer.org/). See [Requirements and Setup](#requirements-and-setup) for how to locate or extract them.
+
+---
+
+## Pipeline Overview
+
+The recommended pipeline consists of three steps:
+
+1. **Reorientation** -- Aligns scans to LAS canonical orientation (MNI152 standard).
+2. **Skull-stripping** -- Extracts a brain mask using [HD-BET](https://github.com/MIC-DKFZ/HD-BET), then dilates it (default 14 mm) to preserve peripheral brain structures. A new skull-stripped scan is generated using the dilated mask.
+3. **Registration and Defacing** -- Registers each dilated skull-stripped scan to the bundled MNI152 template via affine registration ([BRAINSFit](https://github.com/BRAINSia/BRAINSTools)), warps the template face mask into the scan's space, and applies it to remove facial features.
+
+The [template image](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/mni_icbm152_t1_tal_nlin_sym_55_ext.nii) is sourced from the [ICBM 152 Extended Nonlinear Atlases (2020)](https://nist.mni.mcgill.ca/icbm-152-extended-nonlinear-atlases-2020/). The [face mask](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/t1_mask.nii.gz) was created with [ITK-SNAP](http://www.itksnap.org) to remove facial features while retaining as much clinical information as possible.
+
+### Why Skull-Stripping?
+
+In the original pipeline, full head images are registered directly to the template. This works well for standard FOV images but often fails for reduced FOV scans (slabs), where the large anatomical differences between the input and template cause the affine registration to diverge.
+
+By skull-stripping first, the registration focuses on brain anatomy only, which is far more consistent across subjects and FOV configurations. The brain mask dilation (14 mm by default) ensures that structures near the skull edge are preserved in the final defaced output.
+
+---
+
+## Using the Notebooks
+
+> **Note:** Notebooks [1] and [2] must be run with the **3D Slicer Jupyter Notebook kernel**. To install the kernel, follow the instructions in the [SlicerJupyter](https://github.com/Slicer/SlicerJupyter) repository. Alternatively, they can be converted to Python scripts and run directly in 3D Slicer using the approach described [here](https://slicer.readthedocs.io/en/latest/developer_guide/script_repository.html#run-a-python-script-file-in-the-slicer-environment). Notebook [3] runs with a standard Python kernel.
+
+### Recommended: With Skull-Stripping
+
+The notebook [[1]deface_skullstripping.ipynb](%5B1%5Ddeface_skullstripping.ipynb) implements the full three-step pipeline described above:
+
+1. **Reorientation** to MNI152 space
+2. **Skull-stripping** with HD-BET and mask dilation
+3. **Registration and defacing** using the dilated skull-stripped scans
+
+Outputs are written to the [example_output_hdbet](data/example_output_hdbet) directory.
+
+### Legacy: Without Skull-Stripping
+
+The notebook [[1]deface_with_brainsfit.ipynb](%5B1%5Ddeface_with_brainsfit.ipynb) implements the original, simpler pipeline that registers full head images directly to the template -- without reorientation or skull-stripping.
+
+In the second cell, set the paths to input images, output directories, and the BRAINSFit/BRAINSResample binaries. You can also provide a list of existing manual transforms for cases that previously failed:
+
 ```python
 existing_transform_paths = [None, "./data/example_input_images/IXI002-Guys-0828-T2/Transform_to_template.txt"]
 ```
-Furthermore, the path to the BRAINSFit and BRAINSResample binaries need to be set in this cell. 
 
-For each case the notebook will create an output directory, for example for the T1 image:
-[IXI002-Guys-0828-T1](data/example_output/defaced_images/IXI002-Guys-0828-T1)
+Outputs are written to the [example_output](data/example_output) directory.
 
-This directory contains intermediate output files and the defaced image:
-[IXI002-Guys-0828-T1_masked.nii.gz](data/example_output/defaced_images/IXI002-Guys-0828-T1/IXI002-Guys-0828-T1_masked.nii.gz)
+> **Note:** This approach is less robust for reduced FOV images. Consider using the skull-stripping pipeline or the `caideface` CLI instead.
 
+### Example Data
 
-## Step 4: Create 3D rendering of the defaced images with 3D Slicer
-This step is performed by the notebook [[2]facemask_rendering_with_3DSlicer.ipynb](%5B2%5Dfacemask_rendering_with_3DSlicer.ipynb).
-In the third cell, it is required to set the path to the defaced images and the output directory.
-The notebook will create a GIF animation of the 3D rendering of the defaced image. The GIF is saved in the output directory.
+Both notebooks use two test images from the IXI dataset:
+- [IXI002-Guys-0828-T1.nii.gz](data/example_input_images/IXI002-Guys-0828-T1/IXI002-Guys-0828-T1.nii.gz) (T1)
+- [IXI002-Guys-0828-T2.nii.gz](data/example_input_images/IXI002-Guys-0828-T2/IXI002-Guys-0828-T2.nii.gz) (T2, includes a [manual transform](data/example_input_images/IXI002-Guys-0828-T2/Transform_to_template.txt))
 
-This script needs to be run with the 3D Slicer Jupyter Notebook kernel. To install the kernel, follow the instructions
-[here](https://github.com/Slicer/SlicerJupyter). Alternatively, the notebook can be converted to a Python script and run
-directly in 3D Slicer, using the approach described 
-[here](https://slicer.readthedocs.io/en/latest/developer_guide/script_repository.html#run-a-python-script-file-in-the-slicer-environment).
+---
 
-## Step 5: Manual confirmation of the defacing
-This step is performed by the notebook [[3]loop_through_all_defaced_images_and_assess_manually.ipynb](%5B3%5Dloop_through_all_defaced_images_and_assess_manually.ipynb).
-The purpose is to efficiently go through all GIFs created in step 4 and manually assess the quality of the defacing for each 
-image, and store the results in a CSV file, so that manual registration can be performed for the failed cases. 
-In the second cell, the path to the defaced images, the 3D GIFs and the original images need to be set. The latter are 
-used to compare the masked images with the original images. 
+## Quality Assessment
 
-The code will loop through all defaced images and show the GIFs in MPV like this (this requires MPV to be installed and added to the
-PATH): ![IXI002-Guys-0828-T1_masked.gif](data%2Fexample_output%2Fdefaced_images_3d_visualization%2FIXI002-Guys-0828-T1%2FIXI002-Guys-0828-T1_masked.gif) 
-After assessing the quality of the defacing and closing MPV, the user is asked for an input string, 
-which will be stored for each image in the CSV file. For example, this can be "y" for successful defacing and "n" for failed defacing.
-The only special input is "v", which will open the original image and the defaced image in ITK-SNAP for a side-by-side comparison.
+These steps are shared across both pipelines and are used to verify defacing quality and handle failures.
 
-The output CSV file is [example_output_manual_assessment.csv](data%2Fexample_output_manual_assessment.csv)
+### 3D Rendering of Defaced Images
 
-## Step 6: Manual landmark selection in 3D Slicer
-This step is performed manually in 3D Slicer. 
-1. Open 3D Slicer.
-1. Drag the template image onto the 3D view and confirm the "Add data into the scene" dialog. 
-1. Drag the input image onto the 3D view and confirm the "Add data into the scene" dialog.
-1. Under Modules, select the "Data" module: ![data_module_after_data_import.png](docs%2Fscreenshots%2Fdata_module_after_data_import.png)
-1. Right-click on the input image and select "Register this ..."
-1. Right-click on the template image and select "Register <input_image_name> to this using ..." --> "Interactive Landmark Registration". 
-This will automatically open the Landmark Registration module. You should see a 3x3 matrix of images: ![interactive_landmark_registration_overview.png](docs%2Fscreenshots%2Finteractive_landmark_registration_overview.png)
-The first row shows the template image views, the second row shows the input image views and the third row shows the
-overlay of both images. 
-1. In the Landmark Registration module, scroll to "Landmarks" and click "+Add". Then, place the landmark in the
-template image, for example on the left eye by scrolling to the correct axial slice with the mouse wheel and placing the 
-landmark with a left-click. The landmark will appear in the other views of the template image and in all views of the 
-input image. First, make sure the landmark is placed correctly in the template image in all views, by dragging the landmark
-to the correct position. Then, make sure the landmark is placed correctly in the input image in all views: ![landmark_1.png](docs%2Fscreenshots%2Flandmark_1.png)
-1. Repeat the same for at least two more landmarks, for example on the right eye and a corner of the 4th ventricle: ![landmark_3.png](docs%2Fscreenshots%2Flandmark_3.png)
-1. To create the landmark based transform, scroll down in the "Landmark Registration" module to "Registration" and click on "Affine Registration"
-Then, scroll further down and under "Linear Registration" click on "Rigid" (even if already selected). If the landmarks are placed correctly, 
-the overlaid images in row 3 should be registered. If not, try to place the landmarks again or add more landmarks: ![manual_registration_done.png](docs%2Fscreenshots%2Fmanual_registration_done.png)
-1. Finally, to save the transform by clicking "File" --> "Save Data" and unselect all files except "Transform.h5". Change the File Format to "Text (.txt)" and select the correct
-output directory. In this example, the first defacing script expects the transform to be called "Transform_to_template.txt" and to be 
-located in the same folder as the input image (alternatively, paths can be adjusted in the script): ![saving_the_transform.png](docs%2Fscreenshots%2Fsaving_the_transform.png)
-
-## Step 7: Repeat steps 2-4 with the manual affine transformation
-Running the first notebook again with the manual transform should produce a successful defacing.
-Make sure to delete previous outputs first, because the notebook will not overwrite existing files.
+The notebook [[2]facemask_rendering_with_3DSlicer.ipynb](%5B2%5Dfacemask_rendering_with_3DSlicer.ipynb) creates GIF animations of the 3D rendering of each defaced image.
 
 
-## Extracting BRAINSFit and BRAINSResample binaries and shared libraries from 3D Slicer
-Building BRAINSTools from source can be challenging. An easier way to obtain the binaries and shared libraries is to 
-extract them from a 3D Slicer installation. The instructions for Ubuntu are as follows:
-1. Locate the 3D Slicer directory, for example `/home/user/3D_Slicer-5.6.2-linux-amd64`
-2. Copy the binaries, `<Slicer_dir>/lib/Slicer-<version>/cli-modules/BRAINSFit` and 
-`<Slicer_dir>/lib/Slicer-<version>/cli-modules/BRAINSResample` to the [BRAINSTools](BRAINSTools) directory contained in 
-the defacing_pipeline repository, overwriting the existing binaries.
-3. Now the Slicer paths that contain the shared libraries need to be registered in the system. This can be done by
-creating a new `.conf` file (for example `brainsfit.conf`) in `/etc/ld.so.conf.d/` with the following paths as 
-content:
-```                                                          
-<Slicer_dir>/lib/Slicer-<version>/cli-modules
-<Slicer_dir>/lib/Slicer-<version>
-<Slicer_dir>/lib
+### Manual Assessment
+
+The notebook [[3]loop_through_all_defaced_images_and_assess_manually.ipynb](%5B3%5Dloop_through_all_defaced_images_and_assess_manually.ipynb) loops through all defaced images for manual quality review.
+
+For each image, the GIF rendering is displayed in MPV:
+
+![IXI002-Guys-0828-T1_masked.gif](data%2Fexample_output%2Fdefaced_images_3d_visualization%2FIXI002-Guys-0828-T1%2FIXI002-Guys-0828-T1_masked.gif)
+
+After closing MPV, you enter a rating for each image (e.g., `y` for success, `n` for failure). The special input `v` opens the original and defaced images side-by-side in ITK-SNAP. Results are saved to [example_output_manual_assessment.csv](data%2Fexample_output_manual_assessment.csv).
+
+### Manual Landmark Registration (Fallback)
+
+For cases where automatic registration failed, a manual affine transform can be created in 3D Slicer:
+
+1. Open 3D Slicer and drag both the template and input images into the scene.
+   ![data_module_after_data_import.png](docs%2Fscreenshots%2Fdata_module_after_data_import.png)
+
+2. Right-click the input image and select **"Register this ..."**, then right-click the template and select **"Register \<input\> to this using ..." --> "Interactive Landmark Registration"**.
+   ![interactive_landmark_registration_overview.png](docs%2Fscreenshots%2Finteractive_landmark_registration_overview.png)
+
+3. Under **Landmarks**, click **"+Add"** and place at least 3 landmarks (e.g., left eye, right eye, 4th ventricle) in both the template and input views.
+   ![landmark_1.png](docs%2Fscreenshots%2Flandmark_1.png)
+   ![landmark_3.png](docs%2Fscreenshots%2Flandmark_3.png)
+
+4. Under **Registration**, click **"Affine Registration"**, then under **Linear Registration** click **"Rigid"**. Verify the overlay is aligned.
+   ![manual_registration_done.png](docs%2Fscreenshots%2Fmanual_registration_done.png)
+
+5. Save the transform via **File --> Save Data**. Unselect all files except `Transform.h5`, change format to **Text (.txt)**, and save it alongside the input image as `Transform_to_template.txt`.
+   ![saving_the_transform.png](docs%2Fscreenshots%2Fsaving_the_transform.png)
+
+Re-run the defacing notebook (or `caideface`) with the manual transform in place. The pipeline will detect and use it automatically.
+
+---
+
+## Requirements and Setup
+
+### For the `caideface` pip package
+
+- Python >= 3.9
+- BRAINSFit and BRAINSResample (bundled with [3D Slicer](https://www.slicer.org/))
+
+Everything else is installed automatically via pip. See the [caideface README](caideface/README.md) for details.
+
+### For the notebooks
+
+The notebooks were tested on Ubuntu 20.04 with Python 3.11 and require:
+
+| Tool | Purpose |
+|------|---------|
+| [BRAINSFit & BRAINSResample](https://github.com/BRAINSia/BRAINSTools) | Affine registration and resampling (tested with v5.4.0 / v5.7.0) |
+| [3D Slicer](https://www.slicer.org/) (v5.2+) | 3D rendering (notebook [2]) and manual landmark registration (step 6) |
+| [ITK-SNAP](http://www.itksnap.org) | Side-by-side comparison during manual assessment |
+| [MPV](https://mpv.io/) | GIF viewing during manual assessment |
+| [FSL](https://fsl.fmrib.ox.ac.uk/fsl/docs/#/) | Reorientation (only for the skull-stripping notebook; not needed for `caideface`) |
+
+### Extracting BRAINSFit and BRAINSResample from 3D Slicer
+
+Building BRAINSTools from source can be challenging. The easiest way is to extract the binaries from a 3D Slicer installation:
+
+**macOS:**
+```bash
+# Binaries are at:
+/Applications/Slicer.app/Contents/lib/Slicer-<version>/cli-modules/BRAINSFit
+/Applications/Slicer.app/Contents/lib/Slicer-<version>/cli-modules/BRAINSResample
 ```
-Make sure to replace `<Slicer_dir>` and `<version>` with the correct values.
-4. Run `sudo ldconfig` to update the shared library paths.
-5. Now the BRAINSFit and BRAINSResample binaries should be able to find the shared libraries and run successfully.
 
+**Linux (Ubuntu):**
+1. Locate your 3D Slicer directory, e.g., `/home/user/3D_Slicer-5.6.2-linux-amd64`
+2. Copy the binaries from `<Slicer_dir>/lib/Slicer-<version>/cli-modules/` to the [BRAINSTools](BRAINSTools) directory in this repository.
+3. Register the shared library paths by creating `/etc/ld.so.conf.d/brainsfit.conf` with:
+   ```
+   <Slicer_dir>/lib/Slicer-<version>/cli-modules
+   <Slicer_dir>/lib/Slicer-<version>
+   <Slicer_dir>/lib
+   ```
+4. Run `sudo ldconfig` to update the shared library cache.
 
-## Alternative Registration and Defacing with HD-BET
+Replace `<Slicer_dir>` and `<version>` with your actual paths.
 
-An alternative approach to the pipeline is outlined in the Jupyter notebook [[1]deface_skullstripping.ipynb]([1]deface_skullstripping.ipynb). This method involves several additional steps for improved defacing:
-
-1. **Reorientation**: Scans are first reoriented to MNI152 space using the [FSL Installation Guide](https://fsl.fmrib.ox.ac.uk/fsl/docs/#/).
-2. **Skull-stripping**: Skull-stripping is then performed on these reoriented scans using [HD-BET GitHub repository](https://github.com/MIC-DKFZ/HD-BET).
-3. **Mask Dilation**: The resulting binary brain mask from the skull-stripping process is dilated.
-4. **New Skull-stripped Scan**: A new skull-stripped scan is generated using the dilated mask.
-
-The registration and defacing steps follow as described earlier, but with the key difference that the input scans are the reoriented ones, and the dilated brain mask is used. This ensures that no brain structures are removed during the defacing process.
+---
 
 ## How to Cite
 
-If you use this pipeline or codebase in your work, please cite the following paper:
+If you use this pipeline or codebase in your work, please cite:
 
 > Lorena Garcia-Foncillas Macias, et al. *A Generalisable Head MRI Defacing Pipeline: Evaluation on 2,566 Meningioma Scans*. 2025. Available at: [https://arxiv.org/abs/2505.12999](https://arxiv.org/abs/2505.12999)
 
-BibTeX:
 ```bibtex
 @article{garcia2025defacing,
   title={A Generalisable Head MRI Defacing Pipeline: Evaluation on 2,566 Meningioma Scans},
@@ -164,3 +212,4 @@ BibTeX:
   archivePrefix={arXiv},
   primaryClass={cs.CV}
 }
+```
