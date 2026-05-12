@@ -8,6 +8,7 @@ from .pipeline import DefacePipeline
 from .reorient import reorient_batch
 from .skull_strip import skull_strip_batch, get_default_device
 from .register import deface_batch
+from .anonymize import anonymize_batch, anonymize_single, load_ner_model, generate_fake_names
 
 
 def _setup_logging(verbose: bool):
@@ -70,6 +71,22 @@ def main():
     deface_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space")
     deface_parser.add_argument("--background", type=float, default=0, help="Background value (default: 0 for MRI, use -1024 for CT)")
 
+    # --- anonymize (batch) ---
+    anon_parser = subparsers.add_parser("anonymize", help="Anonymize personal names in all .txt files in a directory", parents=[parent])
+    anon_parser.add_argument("input_dir", help="Directory containing .txt files")
+    anon_parser.add_argument("output_dir", help="Output directory for anonymized files")
+    anon_parser.add_argument("--model", default=None, help="Custom NER model directory (uses bundled if omitted)")
+    anon_parser.add_argument("--n-names", type=int, default=50, help="Size of fake name pool (default: 50)")
+    anon_parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+
+    # --- anonymize-single ---
+    anon_single_parser = subparsers.add_parser("anonymize-single", help="Anonymize personal names in a single .txt file", parents=[parent])
+    anon_single_parser.add_argument("input_file", help="Input .txt file")
+    anon_single_parser.add_argument("output_file", help="Output file path")
+    anon_single_parser.add_argument("--model", default=None, help="Custom NER model directory (uses bundled if omitted)")
+    anon_single_parser.add_argument("--n-names", type=int, default=50, help="Size of fake name pool (default: 50)")
+    anon_single_parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -121,6 +138,25 @@ def main():
         if failed:
             print(f"\n{len(failed)} scan(s) failed. See output log.")
             sys.exit(1)
+
+    elif args.command == "anonymize":
+        log_df = anonymize_batch(
+            input_dir=args.input_dir,
+            output_dir=args.output_dir,
+            model_dir=args.model,
+            n_fake_names=args.n_names,
+            seed=args.seed,
+        )
+        total = log_df["replacements"].sum()
+        print(f"\nAnonymized {len(log_df)} file(s), {total} name(s) replaced.")
+
+    elif args.command == "anonymize-single":
+        nlp = load_ner_model(args.model)
+        fake_names = generate_fake_names(n=args.n_names, seed=args.seed)
+        result = anonymize_single(args.input_file, args.output_file, nlp, fake_names)
+        names = result["names_found"]
+        print(f"\nAnonymized {result['replacements']} name(s): {names}")
+        print(f"Saved to: {args.output_file}")
 
 
 if __name__ == "__main__":

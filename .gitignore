@@ -1,1 +1,13 @@
+# Jupyter
 .ipynb_checkpoints
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+
+# macOS
+.DS_Store
+
+# pytest
+.pytest_cache/
