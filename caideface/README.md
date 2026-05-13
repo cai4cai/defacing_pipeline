@@ -281,6 +281,22 @@ If you use HD-BET (skull-stripping, Step 2), please also cite:
 }
 ```
 
+If you use the text anonymisation (NER + HIPS), please also cite:
+
+```bibtex
+@article{garcia2025ner,
+  title={Evaluation of Named Entity Recognition for Automated Extraction of Present Tumor Size and Personal Names from Radiology Reports Using Spacy},
+  author={Garcia-Foncillas Macias, Lorena and Barfoot, Theodore and Vercauteren, Tom and Shapey, Jonathan},
+  journal={Journal of Neurological Surgery Part B: Skull Base},
+  volume={86},
+  number={S 01},
+  year={2025},
+  doi={10.1055/s-0045-1803715}
+}
+```
+
+
+
 ## License
 
 This project is licensed under the MIT License -- see the [LICENSE](LICENSE.md) file for details.

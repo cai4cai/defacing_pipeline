@@ -154,6 +154,14 @@ If you use this pipeline or codebase in your work, please cite the following pap
 
 > Lorena Garcia-Foncillas Macias, et al. *A Generalisable Head MRI Defacing Pipeline: Evaluation on 2,566 Meningioma Scans*. 2025. Available at: [https://arxiv.org/abs/2505.12999](https://arxiv.org/abs/2505.12999)
 
+If you use the skull-stripping step ([HD-BET](https://github.com/MIC-DKFZ/HD-BET)), please also cite:
+
+> Isensee, F. et al. *Automated brain extraction of multi-sequence MRI using artificial neural networks*. Human Brain Mapping, 2019. DOI: [10.1002/hbm.24750](https://doi.org/10.1002/hbm.24750)
+
+If you use the text anonymisation (NER + HIPS) functionality, please also cite:
+
+> Lorena Garcia-Foncillas Macias, Theodore Barfoot, Tom Vercauteren, Jonathan Shapey. *Evaluation of Named Entity Recognition for Automated Extraction of Present Tumor Size and Personal Names from Radiology Reports Using Spacy*. Journal of Neurological Surgery Part B: Skull Base, 86(S 01), 2025. DOI: [10.1055/s-0045-1803715](https://doi.org/10.1055/s-0045-1803715)
+
 BibTeX:
 ```bibtex
 @article{garcia2025defacing,
@@ -163,4 +171,23 @@ BibTeX:
   eprint={2505.12999},
   archivePrefix={arXiv},
   primaryClass={cs.CV}
+}
+
+@article{Isensee2019,
+  author={Isensee, F. and Schell, M. and Tursunova, I. and Brugnara, G. and Bonekamp, D. and Neuberger, U. and Wick, A. and Schlemmer, H. P. and Heiland, S. and Wick, W. and Bendszus, M. and Maier-Hein, K. H. and Kickingereder, P.},
+  title={Automated brain extraction of multi-sequence MRI using artificial neural networks},
+  journal={Human Brain Mapping},
+  year={2019},
+  pages={1--13},
+  doi={10.1002/hbm.24750}
+}
+
+@article{garcia2025ner,
+  title={Evaluation of Named Entity Recognition for Automated Extraction of Present Tumor Size and Personal Names from Radiology Reports Using Spacy},
+  author={Garcia-Foncillas Macias, Lorena and Barfoot, Theodore and Vercauteren, Tom and Shapey, Jonathan},
+  journal={Journal of Neurological Surgery Part B: Skull Base},
+  volume={86},
+  number={S 01},
+  year={2025},
+  doi={10.1055/s-0045-1803715}
 }
