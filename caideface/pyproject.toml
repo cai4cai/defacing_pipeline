@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "caideface"
-version = "0.3.2"
+version = "0.3.3"
 description = "MRI defacing pipeline with skull-stripping and affine registration from cai4cai"
 readme = "README.md"
 license = {text = "Apache-2.0"}
