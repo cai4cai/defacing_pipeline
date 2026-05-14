@@ -82,15 +82,91 @@ def is_valid_3d_volume(filepath: str) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Brain extraction backends
+# ---------------------------------------------------------------------------
+
+def _extract_brain_hdbet(
+    input_file: str, output_file: str, device: str = "cpu", disable_tta: bool = True
+) -> None:
+    """Run HD-BET brain extraction (MRI)."""
+    hdbet_bin = _hd_bet_executable()
+    cmd = [hdbet_bin, "-i", input_file, "-o", output_file, "-device", device]
+    if disable_tta:
+        cmd.append("--disable_tta")
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
+def _extract_brain_totalseg(
+    input_file: str, output_file: str, binary_mask_file: str, device: str = "cpu"
+) -> None:
+    """Run TotalSegmentator brain extraction (CT).
+
+    Saves both a brain-extracted volume (*output_file*) and the raw binary
+    brain mask (*binary_mask_file*).  The mask is needed because CT brain-
+    extracted volumes have negative values, so ``data > 0`` cannot be used
+    to recover the mask (unlike MRI).
+
+    Requires ``pip install caideface[ct]``.
+    """
+    try:
+        from totalsegmentator.python_api import totalsegmentator
+        import totalsegmentator.config as _ts_config
+    except ImportError:
+        raise ImportError(
+            "TotalSegmentator is required for CT skull-stripping.\n"
+            "Install it with: pip install caideface[ct]"
+        )
+
+    # Disable anonymous usage statistics — no data should leave the machine.
+    # Patch send_usage_stats to a no-op so no network calls are made.
+    _orig_send = _ts_config.send_usage_stats
+    _ts_config.send_usage_stats = lambda *a, **kw: None
+
+    ts_device = "cpu" if device == "cpu" else "gpu"
+
+    try:
+        input_img = nib.load(input_file)
+        brain_mask = totalsegmentator(
+            input=input_img,
+            task="total",
+            roi_subset=["brain"],
+            device=ts_device,
+            quiet=True,
+        )
+    finally:
+        _ts_config.send_usage_stats = _orig_send
+
+    # Save the raw binary brain mask
+    mask_data = brain_mask.get_fdata().astype(np.uint8)
+    nib.save(
+        nib.Nifti1Image(mask_data, input_img.affine, input_img.header),
+        binary_mask_file,
+    )
+
+    # Apply brain mask to get brain-extracted volume
+    data = input_img.get_fdata()
+    brain_data = data * mask_data
+    nib.save(
+        nib.Nifti1Image(brain_data, input_img.affine, input_img.header),
+        output_file,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Single / batch skull-stripping
+# ---------------------------------------------------------------------------
+
 def skull_strip_single(
     input_file: str,
     input_root: str,
     output_dir: str,
+    modality: str = "mri",
     device: str = "cpu",
     disable_tta: bool = True,
     desired_dilation_mm: float = 14.0,
 ) -> dict:
-    """Run HD-BET on a single NIfTI file and produce dilated brain mask.
+    """Extract brain, create dilated mask, and apply it to a single NIfTI file.
 
     Parameters
     ----------
@@ -100,58 +176,71 @@ def skull_strip_single(
         Root input directory (used to compute relative paths).
     output_dir : str
         Root output directory.
+    modality : str
+        ``'mri'`` (uses HD-BET) or ``'ct'`` (uses TotalSegmentator).
     device : str
         'cpu' or 'cuda'.
     disable_tta : bool
-        Disable test-time augmentation for faster processing.
+        Disable HD-BET test-time augmentation (MRI only).
     desired_dilation_mm : float
         Physical dilation size in mm for mask expansion.
 
     Returns
     -------
     dict
-        Status dict with keys: input, output, hd_bet, mask, dilated.
+        Status dict with keys: input, output, brain_extract, mask, dilated.
     """
     filename = os.path.basename(input_file)
     stem = filename.replace(".nii.gz", "")
     subfolder = os.path.relpath(os.path.dirname(input_file), start=input_root)
 
-    hd_bet_file = os.path.join(output_dir, subfolder, f"{stem}_brain.nii.gz")
+    brain_file = os.path.join(output_dir, subfolder, f"{stem}_brain.nii.gz")
     mask_file = os.path.join(output_dir, subfolder, f"{stem}_mask.nii.gz")
     dilated_file = os.path.join(output_dir, subfolder, f"{stem}_dilated.nii.gz")
 
-    os.makedirs(os.path.dirname(hd_bet_file), exist_ok=True)
+    os.makedirs(os.path.dirname(brain_file), exist_ok=True)
 
     status = {
-        "hd_bet": "skipped" if os.path.exists(hd_bet_file) else "pending",
+        "brain_extract": "skipped" if os.path.exists(brain_file) else "pending",
         "mask": "skipped" if os.path.exists(mask_file) else "pending",
         "dilated": "skipped" if os.path.exists(dilated_file) else "pending",
     }
 
     try:
-        # --- HD-BET ---
-        if not os.path.exists(hd_bet_file):
-            hdbet_bin = _hd_bet_executable()
-            cmd = [hdbet_bin, "-i", input_file, "-o", hd_bet_file, "-device", device]
-            if disable_tta:
-                cmd.append("--disable_tta")
-            try:
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
-                status["hd_bet"] = "success"
-            except subprocess.CalledProcessError as e:
-                logger.error("hd-bet failed for %s: %s", input_file, e.stderr)
-                status["hd_bet"] = "failed"
-                return {"input": input_file, "output": hd_bet_file, **status, "error": e.stderr}
+        # --- Brain extraction (modality-dependent) ---
+        # For CT, a separate binary mask file is saved alongside the
+        # brain-extracted volume because CT values include negatives,
+        # making ``data > 0`` unreliable for mask recovery.
+        ct_binary_mask_file = os.path.join(
+            output_dir, subfolder, f"{stem}_brain_binary_mask.nii.gz"
+        )
+        if not os.path.exists(brain_file):
+            if modality == "ct":
+                logger.info("Running TotalSegmentator brain extraction...")
+                _extract_brain_totalseg(input_file, brain_file, ct_binary_mask_file, device)
+            else:
+                logger.info("Running HD-BET brain extraction...")
+                try:
+                    _extract_brain_hdbet(input_file, brain_file, device, disable_tta)
+                except subprocess.CalledProcessError as e:
+                    logger.error("HD-BET failed for %s: %s", input_file, e.stderr)
+                    status["brain_extract"] = "failed"
+                    return {"input": input_file, "output": brain_file, **status, "error": e.stderr}
+            status["brain_extract"] = "success"
 
         # --- Binary mask + dilation ---
         if not os.path.exists(mask_file):
-            img = nib.load(hd_bet_file)
-            data = img.get_fdata()
+            if modality == "ct" and os.path.exists(ct_binary_mask_file):
+                # Use the raw TotalSegmentator binary mask directly
+                img = nib.load(ct_binary_mask_file)
+                binary_volume = (img.get_fdata() > 0).astype(np.uint8)
+            else:
+                # MRI: threshold the brain-extracted volume
+                img = nib.load(brain_file)
+                binary_volume = (img.get_fdata() > 0).astype(np.uint8)
+
             voxel_sizes = img.header.get_zooms()[:3]
-
             struct_elem = get_safe_structuring_element(voxel_sizes, desired_dilation_mm)
-
-            binary_volume = (data > 0).astype(np.uint8)
             dilated_data = binary_dilation(binary_volume, structure=struct_elem)
 
             nib.save(nib.Nifti1Image(dilated_data, img.affine, img.header), mask_file)
@@ -165,7 +254,12 @@ def skull_strip_single(
             original_img = nib.load(input_file)
             original_data = original_img.get_fdata()
 
-            dilated_volume = original_data * mask_data
+            # Detect background so outside-mask voxels keep the correct
+            # intensity (e.g. ~-1000 HU for CT instead of 0).
+            from .background import detect_background_value
+            bg = detect_background_value(original_data, modality)
+
+            dilated_volume = np.where(mask_data, original_data, bg)
             nib.save(
                 nib.Nifti1Image(dilated_volume, original_img.affine, original_img.header),
                 dilated_file,
@@ -178,18 +272,20 @@ def skull_strip_single(
             if status[k] == "pending":
                 status[k] = "failed"
 
-    return {"input": input_file, "output": hd_bet_file, **status}
+    return {"input": input_file, "output": brain_file, **status}
 
 
 def skull_strip_batch(
     input_dir: str,
     output_dir: str,
+    modality: str = "mri",
     device: str | None = None,
     disable_tta: bool = True,
     desired_dilation_mm: float = 14.0,
 ) -> pd.DataFrame:
-    """Run HD-BET skull-stripping on all 3D NIfTI volumes under *input_dir*.
+    """Run skull-stripping on all 3D NIfTI volumes under *input_dir*.
 
+    Uses HD-BET for MRI or TotalSegmentator for CT, based on *modality*.
     Scans that are not 3D volumes (2D slices or 4D time series) are skipped.
 
     Parameters
@@ -197,11 +293,13 @@ def skull_strip_batch(
     input_dir : str
         Root directory with reoriented NIfTI files.
     output_dir : str
-        Root output directory for HD-BET results.
+        Root output directory for skull-stripping results.
+    modality : str
+        ``'mri'`` (HD-BET) or ``'ct'`` (TotalSegmentator).
     device : str or None
         'cpu' or 'cuda'. Auto-detected if None.
     disable_tta : bool
-        Disable test-time augmentation.
+        Disable test-time augmentation (MRI/HD-BET only).
     desired_dilation_mm : float
         Physical dilation in mm.
 
@@ -210,8 +308,17 @@ def skull_strip_batch(
     pd.DataFrame
         Processing log.
     """
-    # Validate hd-bet is available (will raise if not found)
-    _hd_bet_executable()
+    # Validate backend is available
+    if modality == "mri":
+        _hd_bet_executable()
+    elif modality == "ct":
+        try:
+            import totalsegmentator  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "TotalSegmentator is required for CT skull-stripping.\n"
+                "Install it with: pip install caideface[ct]"
+            )
 
     if device is None:
         device = get_default_device()
@@ -231,18 +338,22 @@ def skull_strip_batch(
 
             logger.info("Processing: %s", input_file)
             result = skull_strip_single(
-                input_file, input_dir, output_dir, device, disable_tta, desired_dilation_mm
+                input_file, input_dir, output_dir,
+                modality=modality,
+                device=device,
+                disable_tta=disable_tta,
+                desired_dilation_mm=desired_dilation_mm,
             )
             log_data.append(result)
 
     df = pd.DataFrame(log_data)
-    log_path = os.path.join(output_dir, "hd_bet_log.csv")
+    log_path = os.path.join(output_dir, "skull_strip_log.csv")
 
     if os.path.exists(log_path):
         existing = pd.read_csv(log_path)
         df = pd.concat([existing, df], ignore_index=True)
 
     df.to_csv(log_path, index=False)
-    logger.info("HD-BET log saved at %s", log_path)
+    logger.info("Skull-stripping log saved at %s", log_path)
 
     return df

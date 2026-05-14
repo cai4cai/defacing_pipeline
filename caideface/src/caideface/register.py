@@ -11,6 +11,8 @@ import numpy as np
 from numpy.linalg import inv
 from natsort import natsorted
 
+from .background import detect_background_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,12 +25,33 @@ def _data_dir() -> str:
     return os.path.join(os.path.dirname(__file__), "data")
 
 
-def default_template_path() -> str:
+def default_template_path(modality: str = "mri") -> str:
+    """Return the default template path for the given modality."""
+    if modality == "ct":
+        return default_ct_template_path()
     return os.path.join(_data_dir(), "mni_icbm152_t1_tal_nlin_sym_55_ext_brain_only.nii.gz")
 
 
-def default_face_mask_path() -> str:
+def default_face_mask_path(modality: str = "mri") -> str:
+    """Return the default face mask path for the given modality."""
+    if modality == "ct":
+        return os.path.join(_data_dir(), "ct_face_mask.nii.gz")
     return os.path.join(_data_dir(), "t1_mask.nii.gz")
+
+
+def default_ct_template_path() -> str:
+    """Return the CT brain atlas from the TotalSegmentator installation."""
+    try:
+        import totalsegmentator
+        ts_dir = os.path.dirname(totalsegmentator.__file__)
+        ct_atlas = os.path.join(ts_dir, "resources", "ct_brain_atlas_1mm.nii.gz")
+        if os.path.isfile(ct_atlas):
+            return ct_atlas
+    except ImportError:
+        pass
+    raise FileNotFoundError(
+        "CT brain atlas not found. Install TotalSegmentator with: pip install caideface[ct]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +136,7 @@ def run_brainsfit(
     output_volume_path: str,
     output_transform_path: str,
     brainsfit_path: str,
+    background_value: float = 0,
 ) -> int:
     """Run BRAINSFit affine registration and return the exit code."""
     cmd = (
@@ -129,7 +153,7 @@ def run_brainsfit(
         f'--medianFilterSize 0,0,0 '
         f'--removeIntensityOutliers 0 '
         f'--outputVolumePixelType float '
-        f'--backgroundFillValue 0 '
+        f'--backgroundFillValue {background_value} '
         f'--interpolationMode Linear '
         f'--numberOfIterations 1500 '
         f'--maximumStepLength 0.05 '
@@ -219,8 +243,9 @@ def deface_single(
     face_mask_path: str,
     brainsfit_path: str,
     brainsresample_path: str,
+    modality: str = "mri",
     existing_transform: str | None = None,
-    background_value: float = 0,
+    background_value: float | None = None,
 ) -> bool:
     """Register, warp face mask, and deface a single scan.
 
@@ -236,6 +261,20 @@ def deface_single(
         logger.info("Already defaced, skipping: %s", masked_path)
         return True
 
+    # --- Background value detection (always runs per volume) ---
+    floating_nii = nib.load(reoriented_path)
+    floating_data = floating_nii.get_fdata()
+
+    detected_bg = detect_background_value(floating_data, modality)
+    if background_value is not None:
+        logger.info(
+            "Detected background: %.1f, using override: %.1f",
+            detected_bg, background_value,
+        )
+    else:
+        background_value = detected_bg
+        logger.info("Using detected background: %.1f", background_value)
+
     out_affine = os.path.join(results_dir, base.replace(".nii.gz", ".txt"))
     out_resampled = os.path.join(results_dir, base.replace(".nii.gz", "_resampled.nii.gz"))
 
@@ -246,7 +285,8 @@ def deface_single(
     else:
         logger.info("Running BRAINSFit registration...")
         exit_code = run_brainsfit(
-            target_path, floating_path, out_resampled, out_affine, brainsfit_path
+            target_path, floating_path, out_resampled, out_affine, brainsfit_path,
+            background_value=background_value,
         )
         if exit_code != 0:
             logger.error("BRAINSFit failed (exit %d) for %s", exit_code, floating_path)
@@ -267,9 +307,6 @@ def deface_single(
     )
 
     # --- Combine masks and deface ---
-    floating_nii = nib.load(reoriented_path)
-    floating_data = floating_nii.get_fdata()
-
     face_data = nib.load(face_mask_resampled).get_fdata()
     brain_data = nib.load(brain_mask_path).get_fdata()
 
@@ -291,9 +328,10 @@ def deface_batch(
     output_dir: str,
     brainsfit_path: str,
     brainsresample_path: str,
+    modality: str = "mri",
     target_path: str | None = None,
     face_mask_path: str | None = None,
-    background_value: float = 0,
+    background_value: float | None = None,
 ) -> list[str]:
     """Run the full defacing pipeline (Step 3) on all dilated scans.
 
@@ -309,12 +347,14 @@ def deface_batch(
         Path to the BRAINSFit executable.
     brainsresample_path : str
         Path to the BRAINSResample executable.
+    modality : str
+        Image modality: ``'mri'`` or ``'ct'``.
     target_path : str or None
         Path to skull-stripped MNI152 template. Uses bundled if None.
     face_mask_path : str or None
         Path to face mask in MNI152 space. Uses bundled if None.
-    background_value : float
-        Value to fill defaced regions (default 0 for MRI; use -1024 for CT).
+    background_value : float or None
+        Value to fill defaced regions. Auto-detected per volume when None.
 
     Returns
     -------
@@ -322,9 +362,9 @@ def deface_batch(
         Paths of scans that failed to deface.
     """
     if target_path is None:
-        target_path = default_template_path()
+        target_path = default_template_path(modality)
     if face_mask_path is None:
-        face_mask_path = default_face_mask_path()
+        face_mask_path = default_face_mask_path(modality)
 
     hdbet_dir = os.path.abspath(hdbet_dir)
     reoriented_dir = os.path.abspath(reoriented_dir)
@@ -371,6 +411,7 @@ def deface_batch(
                 face_mask_path=face_mask_path,
                 brainsfit_path=brainsfit_path,
                 brainsresample_path=brainsresample_path,
+                modality=modality,
                 existing_transform=existing_transforms.get(fimg),
                 background_value=background_value,
             )

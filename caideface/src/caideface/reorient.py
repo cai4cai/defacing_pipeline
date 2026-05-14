@@ -1,4 +1,4 @@
-"""Step 1: Reorientation of NIfTI scans to LAS (MNI152 standard) using nibabel."""
+"""Step 1: Reorientation of NIfTI scans to RAS using nibabel."""
 
 import os
 import logging
@@ -9,15 +9,15 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Target orientation matching fslreorient2std / MNI152 standard
-TARGET_ORIENTATION = ("L", "A", "S")
+# RAS matches the MNI152 standard, fslreorient2std, HD-BET, and the CT brain atlas.
+TARGET_ORIENTATION = ("R", "A", "S")
 
 
 def reorient_single(input_file: str, output_file: str) -> bool:
-    """Reorient a single NIfTI file to LAS orientation (MNI152 standard).
+    """Reorient a single NIfTI file to RAS orientation.
 
-    This is equivalent to FSL's ``fslreorient2std`` but implemented purely
-    in Python using nibabel, removing the FSL dependency.
+    This is equivalent to FSL's ``fslreorient2std`` and matches the
+    MNI152 template orientation used by both the MRI and CT pipelines.
 
     Parameters
     ----------
@@ -48,7 +48,7 @@ def reorient_single(input_file: str, output_file: str) -> bool:
 
 
 def reorient_batch(input_dir: str, output_dir: str) -> pd.DataFrame:
-    """Reorient all NIfTI files found recursively under *input_dir*.
+    """Reorient all NIfTI files found recursively under *input_dir* to RAS.
 
     The directory structure is mirrored under *output_dir*.
 
@@ -67,6 +67,8 @@ def reorient_batch(input_dir: str, output_dir: str) -> pd.DataFrame:
     """
     input_dir = os.path.abspath(input_dir)
     output_dir = os.path.abspath(output_dir)
+
+    logger.info("Target orientation: RAS")
 
     log_rows = []
     for root, _dirs, files in os.walk(input_dir):

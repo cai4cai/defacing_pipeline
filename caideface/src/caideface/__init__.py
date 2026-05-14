@@ -8,13 +8,14 @@ A three-step pipeline for anonymising head MRI scans:
 Plus standalone text anonymisation via NER + HIPS (Hiding in Plain Sight).
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.2"
 
 from .pipeline import DefacePipeline
 from .reorient import reorient_batch, reorient_single
 from .skull_strip import skull_strip_batch, skull_strip_single
 from .register import deface_batch, deface_single
 from .anonymize import anonymize_batch, anonymize_single, default_ner_model_path
+from .background import detect_background_value
 
 __all__ = [
     "DefacePipeline",
@@ -27,4 +28,5 @@ __all__ = [
     "anonymize_batch",
     "anonymize_single",
     "default_ner_model_path",
+    "detect_background_value",
 ]

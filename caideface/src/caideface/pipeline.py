@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class DefacePipeline:
-    """Orchestrates the three-step MRI defacing pipeline.
+    """Orchestrates the three-step defacing pipeline.
 
     Parameters
     ----------
@@ -21,14 +21,16 @@ class DefacePipeline:
         Path to the BRAINSFit executable (from 3D Slicer).
     brainsresample_path : str
         Path to the BRAINSResample executable (from 3D Slicer).
+    modality : str
+        Image modality: ``'mri'`` or ``'ct'``.
     device : str or None
         'cpu' or 'cuda' for HD-BET. Auto-detected if None.
     disable_tta : bool
         Disable HD-BET test-time augmentation for faster processing.
     desired_dilation_mm : float
         Physical dilation in mm for brain mask expansion.
-    background_value : float
-        Value for defaced voxels (default 0 for MRI; use -1024 for CT).
+    background_value : float or None
+        Value for defaced voxels. Auto-detected per volume when None.
     target_path : str or None
         Custom MNI152 skull-stripped template. Uses bundled if None.
     face_mask_path : str or None
@@ -39,15 +41,17 @@ class DefacePipeline:
         self,
         brainsfit_path: str,
         brainsresample_path: str,
+        modality: str = "mri",
         device: str | None = None,
         disable_tta: bool = True,
         desired_dilation_mm: float = 14.0,
-        background_value: float = 0,
+        background_value: float | None = None,
         target_path: str | None = None,
         face_mask_path: str | None = None,
     ):
         self.brainsfit_path = brainsfit_path
         self.brainsresample_path = brainsresample_path
+        self.modality = modality
         self.device = device
         self.disable_tta = disable_tta
         self.desired_dilation_mm = desired_dilation_mm
@@ -93,7 +97,7 @@ class DefacePipeline:
         # Step 1: Reorientation
         if "reorient" in run_steps:
             logger.info("=" * 60)
-            logger.info("STEP 1: Reorientation to MNI152")
+            logger.info("STEP 1: Reorientation to RAS")
             logger.info("=" * 60)
             reorient_log = reorient_batch(input_dir, reoriented_dir)
             results["reorient_log"] = reorient_log
@@ -103,11 +107,13 @@ class DefacePipeline:
         # Step 2: Skull-stripping
         if "skull_strip" in run_steps:
             logger.info("=" * 60)
-            logger.info("STEP 2: Skull-stripping with HD-BET")
+            backend = "TotalSegmentator" if self.modality == "ct" else "HD-BET"
+            logger.info("STEP 2: Skull-stripping with %s", backend)
             logger.info("=" * 60)
             skull_strip_log = skull_strip_batch(
                 input_dir=reoriented_dir,
                 output_dir=hdbet_dir,
+                modality=self.modality,
                 device=self.device,
                 disable_tta=self.disable_tta,
                 desired_dilation_mm=self.desired_dilation_mm,
@@ -127,6 +133,7 @@ class DefacePipeline:
                 output_dir=defaced_dir,
                 brainsfit_path=self.brainsfit_path,
                 brainsresample_path=self.brainsresample_path,
+                modality=self.modality,
                 target_path=self.target_path,
                 face_mask_path=self.face_mask_path,
                 background_value=self.background_value,

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "caideface"
-version = "0.2.0"
+version = "0.3.2"
 description = "MRI defacing pipeline with skull-stripping and affine registration from cai4cai"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.9"
 authors = [
     {name = "Lorena Garcia-Foncillas", email = "lorenagarfon00@gmail.com"},
@@ -37,6 +37,9 @@ dependencies = [
 dev = [
     "pytest",
     "ruff",
+]
+ct = [
+    "TotalSegmentator",
 ]
 
 [project.scripts]

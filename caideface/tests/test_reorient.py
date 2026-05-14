@@ -30,7 +30,7 @@ def _make_nifti(shape=(64, 64, 32), orientation="PSR", dirpath=None):
 
 
 class TestReorientSingle:
-    def test_reorients_to_las(self, tmp_path):
+    def test_reorients_to_ras(self, tmp_path):
         input_path = _make_nifti(orientation="PSR", dirpath=str(tmp_path))
         output_path = os.path.join(str(tmp_path), "output", "reoriented.nii.gz")
 
@@ -39,10 +39,10 @@ class TestReorientSingle:
         assert success is True
         assert os.path.exists(output_path)
         img = nib.load(output_path)
-        assert nib.aff2axcodes(img.affine) == ("L", "A", "S")
+        assert nib.aff2axcodes(img.affine) == ("R", "A", "S")
 
-    def test_already_las_is_unchanged(self, tmp_path):
-        input_path = _make_nifti(orientation="LAS", dirpath=str(tmp_path))
+    def test_already_ras_is_unchanged(self, tmp_path):
+        input_path = _make_nifti(orientation="RAS", dirpath=str(tmp_path))
         output_path = os.path.join(str(tmp_path), "output", "reoriented.nii.gz")
 
         success = reorient_single(input_path, output_path)
@@ -86,7 +86,7 @@ class TestReorientSingle:
             success = reorient_single(input_path, output_path)
             assert success is True
             img = nib.load(output_path)
-            assert nib.aff2axcodes(img.affine) == ("L", "A", "S"), f"Failed for {ornt}"
+            assert nib.aff2axcodes(img.affine) == ("R", "A", "S"), f"Failed for {ornt}"
 
     def test_invalid_file_returns_false(self, tmp_path):
         fake_path = os.path.join(str(tmp_path), "nonexistent.nii.gz")
