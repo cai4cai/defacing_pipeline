@@ -37,18 +37,19 @@ def main():
     run_parser = subparsers.add_parser("run", help="Run the full defacing pipeline", parents=[parent])
     run_parser.add_argument("input_dir", help="Directory containing raw NIfTI files")
     run_parser.add_argument("output_dir", help="Root output directory")
+    run_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
     run_parser.add_argument("--brainsfit", required=True, help="Path to BRAINSFit executable")
     run_parser.add_argument("--brainsresample", required=True, help="Path to BRAINSResample executable")
     run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET (auto-detected if omitted)")
     run_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable HD-BET test-time augmentation (default: disabled)")
     run_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Brain mask dilation in mm (default: 14)")
-    run_parser.add_argument("--background", type=float, default=0, help="Background value for defaced voxels (default: 0 for MRI, use -1024 for CT)")
+    run_parser.add_argument("--background", type=float, default=None, help="Background value for defaced voxels (auto-detected per volume if omitted)")
     run_parser.add_argument("--template", default=None, help="Custom MNI152 skull-stripped template (uses bundled if omitted)")
     run_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space (uses bundled if omitted)")
     run_parser.add_argument("--steps", default="all", help="Steps to run: all, or comma-separated: reorient,skull_strip,deface")
 
     # --- reorient ---
-    reorient_parser = subparsers.add_parser("reorient", help="Step 1: Reorient NIfTI scans to MNI152", parents=[parent])
+    reorient_parser = subparsers.add_parser("reorient", help="Step 1: Reorient NIfTI scans to RAS", parents=[parent])
     reorient_parser.add_argument("input_dir", help="Directory with NIfTI files")
     reorient_parser.add_argument("output_dir", help="Output directory for reoriented files")
 
@@ -56,6 +57,7 @@ def main():
     ss_parser = subparsers.add_parser("skull-strip", help="Step 2: Skull-strip with HD-BET", parents=[parent])
     ss_parser.add_argument("input_dir", help="Directory with reoriented NIfTI files")
     ss_parser.add_argument("output_dir", help="Output directory for HD-BET results")
+    ss_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
     ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET")
     ss_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable test-time augmentation")
     ss_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Dilation in mm")
@@ -65,11 +67,12 @@ def main():
     deface_parser.add_argument("reoriented_dir", help="Directory with reoriented scans (Step 1 output)")
     deface_parser.add_argument("hdbet_dir", help="Directory with HD-BET results (Step 2 output)")
     deface_parser.add_argument("output_dir", help="Output directory for defaced scans")
+    deface_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
     deface_parser.add_argument("--brainsfit", required=True, help="Path to BRAINSFit executable")
     deface_parser.add_argument("--brainsresample", required=True, help="Path to BRAINSResample executable")
     deface_parser.add_argument("--template", default=None, help="Custom MNI152 skull-stripped template")
     deface_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space")
-    deface_parser.add_argument("--background", type=float, default=0, help="Background value (default: 0 for MRI, use -1024 for CT)")
+    deface_parser.add_argument("--background", type=float, default=None, help="Background value (auto-detected per volume if omitted)")
 
     # --- anonymize (batch) ---
     anon_parser = subparsers.add_parser("anonymize", help="Anonymize personal names in all .txt files in a directory", parents=[parent])
@@ -99,6 +102,7 @@ def main():
         pipeline = DefacePipeline(
             brainsfit_path=args.brainsfit,
             brainsresample_path=args.brainsresample,
+            modality=args.modality,
             device=args.device,
             disable_tta=args.no_tta,
             desired_dilation_mm=args.dilation_mm,
@@ -119,6 +123,7 @@ def main():
         skull_strip_batch(
             args.input_dir,
             args.output_dir,
+            modality=args.modality,
             device=args.device,
             disable_tta=args.no_tta,
             desired_dilation_mm=args.dilation_mm,
@@ -131,6 +136,7 @@ def main():
             output_dir=args.output_dir,
             brainsfit_path=args.brainsfit,
             brainsresample_path=args.brainsresample,
+            modality=args.modality,
             target_path=args.template,
             face_mask_path=args.face_mask,
             background_value=args.background,
