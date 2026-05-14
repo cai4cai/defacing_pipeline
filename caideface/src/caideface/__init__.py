@@ -8,7 +8,7 @@ A three-step pipeline for anonymising head MRI scans:
 Plus standalone text anonymisation via NER + HIPS (Hiding in Plain Sight).
 """
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 from .pipeline import DefacePipeline
 from .reorient import reorient_batch, reorient_single
