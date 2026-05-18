@@ -73,7 +73,7 @@ class DefacePipeline:
             Directory containing raw NIfTI (.nii.gz) files.
         output_dir : str
             Root output directory. Subdirectories will be created:
-            ``reoriented/``, ``hdbet/``, ``defaced/``.
+            ``reoriented/``, ``skullstripped/``, ``defaced/``.
         steps : str
             Which steps to run: 'all', 'reorient', 'skull_strip', 'deface',
             or comma-separated combination like 'reorient,skull_strip'.
@@ -87,7 +87,7 @@ class DefacePipeline:
         output_dir = os.path.abspath(output_dir)
 
         reoriented_dir = os.path.join(output_dir, "reoriented")
-        hdbet_dir = os.path.join(output_dir, "hdbet")
+        skullstripped_dir = os.path.join(output_dir, "skullstripped")
         defaced_dir = os.path.join(output_dir, "defaced")
 
         run_steps = set(s.strip() for s in steps.split(",")) if steps != "all" else {"reorient", "skull_strip", "deface"}
@@ -112,7 +112,7 @@ class DefacePipeline:
             logger.info("=" * 60)
             skull_strip_log = skull_strip_batch(
                 input_dir=reoriented_dir,
-                output_dir=hdbet_dir,
+                output_dir=skullstripped_dir,
                 modality=self.modality,
                 device=self.device,
                 disable_tta=self.disable_tta,
@@ -129,7 +129,7 @@ class DefacePipeline:
             logger.info("=" * 60)
             failed = deface_batch(
                 reoriented_dir=reoriented_dir,
-                hdbet_dir=hdbet_dir,
+                skullstripped_dir=skullstripped_dir,
                 output_dir=defaced_dir,
                 brainsfit_path=self.brainsfit_path,
                 brainsresample_path=self.brainsresample_path,

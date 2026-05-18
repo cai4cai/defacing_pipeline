@@ -1,6 +1,7 @@
 # Defacing Pipeline
 
 [![arXiv](https://img.shields.io/badge/arXiv-2505.12999-b31b1b.svg)](https://arxiv.org/abs/2505.12999)
+[![PyPI](https://img.shields.io/pypi/v/caideface)](https://pypi.org/project/caideface/)
 
 A head MRI defacing pipeline based on affine registration that removes facial features while preserving brain structures. Described in *"A Generalisable Head MRI Defacing Pipeline: Evaluation on 2,566 Meningioma Scans"* ([arXiv:2505.12999](https://arxiv.org/abs/2505.12999)).
 
@@ -28,28 +29,48 @@ A head MRI defacing pipeline based on affine registration that removes facial fe
 
 ## Quick Start (pip)
 
-The fastest way to use the pipeline is via the [`caideface`](caideface/) Python package:
+The fastest way to use the pipeline is via the [`caideface`](https://pypi.org/project/caideface/) Python package:
 
 ```bash
+# MRI defacing only
 pip install caideface
+
+# MRI + CT defacing (includes TotalSegmentator)
+pip install caideface[ct]
 ```
 
-Then run the full pipeline (reorientation, skull-stripping, registration and defacing) in one command:
+> **Note:** BRAINSFit and BRAINSResample are bundled with [3D Slicer](https://www.slicer.org/). See [Requirements and Setup](#requirements-and-setup) for how to locate or extract them.
+
+### Deface MRI scans
 
 ```bash
 caideface run ./input_nifti ./output \
+  --modality mri \
   --brainsfit /path/to/BRAINSFit \
   --brainsresample /path/to/BRAINSResample
 ```
 
-This creates three subdirectories under `./output`:
+### Deface CT scans
+
+```bash
+caideface run ./input_nifti ./output \
+  --modality ct \
+  --brainsfit /path/to/BRAINSFit \
+  --brainsresample /path/to/BRAINSResample
+```
+
+### Anonymise text reports
+
+```bash
+caideface anonymize ./reports ./anonymized_reports
+```
+
+All defacing commands create three subdirectories under `./output`:
 - `reoriented/` -- reoriented scans
-- `hdbet/` -- skull-stripped scans and masks
+- `skullstripped/` -- skull-stripped scans and masks
 - `defaced/` -- final defaced scans
 
-See the [caideface README](caideface/README.md) for the full CLI reference, individual step usage, installation options, and output structure.
-
-> **Note:** BRAINSFit and BRAINSResample are bundled with [3D Slicer](https://www.slicer.org/). See [Requirements and Setup](#requirements-and-setup) for how to locate or extract them.
+For the full CLI reference (individual steps, all options, Python API, and output structure), see the [caideface package documentation](caideface/README.md).
 
 ---
 
@@ -65,7 +86,7 @@ The [template image](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model
 
 ### Why Skull-Stripping?
 
-In the original pipeline, full head images are registered directly to the template. This works well for standard FOV images but often fails for reduced FOV scans (slabs), where the large anatomical differences between the input and template cause the affine registration to diverge.
+In the legacy pipeline, full head images are registered directly to the template. This works well for standard FOV images but often fails for reduced FOV scans (slabs), where the large anatomical differences between the input and template cause the affine registration to diverge.
 
 By skull-stripping first, the registration focuses on brain anatomy only, which is far more consistent across subjects and FOV configurations. The brain mask dilation (14 mm by default) ensures that structures near the skull edge are preserved in the final defaced output.
 
@@ -207,6 +228,10 @@ If you use the skull-stripping step ([HD-BET](https://github.com/MIC-DKFZ/HD-BET
 
 > Isensee, F. et al. *Automated brain extraction of multi-sequence MRI using artificial neural networks*. Human Brain Mapping, 2019. DOI: [10.1002/hbm.24750](https://doi.org/10.1002/hbm.24750)
 
+If you use CT defacing ([TotalSegmentator](https://github.com/wasserth/TotalSegmentator)), please also cite:
+
+> Wasserthal, J. et al. *TotalSegmentator: Robust Segmentation of 104 Anatomic Structures in CT Images*. Radiology: Artificial Intelligence, 5(5), 2023. DOI: [10.1148/ryai.230024](https://doi.org/10.1148/ryai.230024)
+
 If you use the text anonymisation (NER + HIPS) functionality, please also cite:
 
 > Lorena Garcia-Foncillas Macias, Theodore Barfoot, Tom Vercauteren, Jonathan Shapey. *Evaluation of Named Entity Recognition for Automated Extraction of Present Tumor Size and Personal Names from Radiology Reports Using Spacy*. Journal of Neurological Surgery Part B: Skull Base, 86(S 01), 2025. DOI: [10.1055/s-0045-1803715](https://doi.org/10.1055/s-0045-1803715)
@@ -220,6 +245,16 @@ BibTeX:
   eprint={2505.12999},
   archivePrefix={arXiv},
   primaryClass={cs.CV}
+}
+
+@article{Wasserthal2023,
+  author={Wasserthal, Jakob and Breit, Hanns-Christian and Meyer, Manfred T. and Pradella, Maurice and Hinck, Daniel and Sauter, Alexander W. and Heye, Tobias and Boll, Daniel T. and Cyriac, Joshy and Yang, Shan and Bach, Michael and Segeroth, Martin},
+  title={TotalSegmentator: Robust Segmentation of 104 Anatomic Structures in CT Images},
+  journal={Radiology: Artificial Intelligence},
+  volume={5},
+  number={5},
+  year={2023},
+  doi={10.1148/ryai.230024}
 }
 
 @article{Isensee2019,

@@ -56,7 +56,7 @@ def main():
     # --- skull-strip ---
     ss_parser = subparsers.add_parser("skull-strip", help="Step 2: Skull-strip with HD-BET", parents=[parent])
     ss_parser.add_argument("input_dir", help="Directory with reoriented NIfTI files")
-    ss_parser.add_argument("output_dir", help="Output directory for HD-BET results")
+    ss_parser.add_argument("output_dir", help="Output directory for skull-stripped results")
     ss_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
     ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET")
     ss_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable test-time augmentation")
@@ -65,7 +65,7 @@ def main():
     # --- deface ---
     deface_parser = subparsers.add_parser("deface", help="Step 3: Register and deface", parents=[parent])
     deface_parser.add_argument("reoriented_dir", help="Directory with reoriented scans (Step 1 output)")
-    deface_parser.add_argument("hdbet_dir", help="Directory with HD-BET results (Step 2 output)")
+    deface_parser.add_argument("skullstripped_dir", help="Directory with skull-stripped results (Step 2 output)")
     deface_parser.add_argument("output_dir", help="Output directory for defaced scans")
     deface_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
     deface_parser.add_argument("--brainsfit", required=True, help="Path to BRAINSFit executable")
@@ -132,7 +132,7 @@ def main():
     elif args.command == "deface":
         failed = deface_batch(
             reoriented_dir=args.reoriented_dir,
-            hdbet_dir=args.hdbet_dir,
+            skullstripped_dir=args.skullstripped_dir,
             output_dir=args.output_dir,
             brainsfit_path=args.brainsfit,
             brainsresample_path=args.brainsresample,

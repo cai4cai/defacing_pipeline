@@ -213,14 +213,14 @@ def run_brainsresample(
 def _build_scan_mapping(
     floating_imgs: list[str],
     reoriented_dir: str,
-    hdbet_dir: str,
+    skullstripped_dir: str,
 ) -> dict:
     """Map dilated skull-stripped scans to their reoriented originals and brain masks.
 
     Returns a dict: {floating_path: (reoriented_path, brain_mask_path)}
     """
     reoriented_files = natsorted(glob(os.path.join(reoriented_dir, "**", "*.nii.gz"), recursive=True))
-    brain_masks = natsorted(glob(os.path.join(hdbet_dir, "**", "*_mask.nii.gz"), recursive=True))
+    brain_masks = natsorted(glob(os.path.join(skullstripped_dir, "**", "*_mask.nii.gz"), recursive=True))
 
     mapping = {}
     for fimg in floating_imgs:
@@ -324,7 +324,7 @@ def deface_single(
 
 def deface_batch(
     reoriented_dir: str,
-    hdbet_dir: str,
+    skullstripped_dir: str,
     output_dir: str,
     brainsfit_path: str,
     brainsresample_path: str,
@@ -339,8 +339,8 @@ def deface_batch(
     ----------
     reoriented_dir : str
         Directory with reoriented scans from Step 1.
-    hdbet_dir : str
-        Directory with HD-BET outputs from Step 2.
+    skullstripped_dir : str
+        Directory with skull-stripped outputs from Step 2.
     output_dir : str
         Where defaced scans will be saved.
     brainsfit_path : str
@@ -366,22 +366,22 @@ def deface_batch(
     if face_mask_path is None:
         face_mask_path = default_face_mask_path(modality)
 
-    hdbet_dir = os.path.abspath(hdbet_dir)
+    skullstripped_dir = os.path.abspath(skullstripped_dir)
     reoriented_dir = os.path.abspath(reoriented_dir)
     output_dir = os.path.abspath(output_dir)
 
     floating_imgs = natsorted(
-        glob(os.path.join(hdbet_dir, "**", "*_dilated.nii.gz"), recursive=True)
+        glob(os.path.join(skullstripped_dir, "**", "*_dilated.nii.gz"), recursive=True)
     )
 
     if not floating_imgs:
-        logger.warning("No dilated skull-stripped scans found in %s", hdbet_dir)
+        logger.warning("No dilated skull-stripped scans found in %s", skullstripped_dir)
         return []
 
     logger.info("Found %d scans to deface", len(floating_imgs))
 
     # Build mapping: floating -> (reoriented, brain_mask)
-    mapping = _build_scan_mapping(floating_imgs, reoriented_dir, hdbet_dir)
+    mapping = _build_scan_mapping(floating_imgs, reoriented_dir, skullstripped_dir)
 
     # Check for pre-existing transforms
     existing_transforms = {}
@@ -398,7 +398,7 @@ def deface_batch(
             continue
 
         reoriented_path, brain_mask_path = mapping[fimg]
-        rel = os.path.relpath(os.path.dirname(fimg), hdbet_dir)
+        rel = os.path.relpath(os.path.dirname(fimg), skullstripped_dir)
         results_dir = os.path.join(output_dir, rel)
 
         try:

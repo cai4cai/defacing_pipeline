@@ -124,7 +124,7 @@ caideface run ./input_nifti ./output \
 
 This creates three subdirectories under `./output`:
 - `reoriented/` -- Step 1 outputs
-- `hdbet/` -- Step 2 outputs (skull-stripped, masks, dilated)
+- `skullstripped/` -- Step 2 outputs (skull-stripped, masks, dilated)
 - `defaced/` -- Step 3 outputs (final defaced scans)
 
 #### Options
@@ -150,10 +150,10 @@ Run each step separately for more control:
 caideface reorient ./raw_nifti ./reoriented --modality mri
 
 # Step 2: Skull-stripping
-caideface skull-strip ./reoriented ./hdbet --modality mri --device cpu
+caideface skull-strip ./reoriented ./skullstripped --modality mri --device cpu
 
 # Step 3: Registration & Defacing
-caideface deface ./reoriented ./hdbet ./defaced \
+caideface deface ./reoriented ./skullstripped ./defaced \
   --modality mri \
   --brainsfit /path/to/BRAINSFit \
   --brainsresample /path/to/BRAINSResample
@@ -259,12 +259,12 @@ output/
 ├── reoriented/
 │   ├── reorientation_log.csv
 │   └── <subject>/<scan>.nii.gz
-├── hdbet/
-│   ├── hd_bet_log.csv
+├── skullstripped/
+│   ├── skull_strip_log.csv
 │   └── <subject>/
-│       ├── hd_bet_<scan>.nii.gz           # Skull-stripped
-│       ├── hd_bet_mask_<scan>.nii.gz      # Dilated brain mask
-│       └── hd_bet_dilated_<scan>.nii.gz   # Dilated skull-stripped
+│       ├── <scan>_brain.nii.gz            # Brain-extracted
+│       ├── <scan>_mask.nii.gz             # Dilated brain mask
+│       └── <scan>_dilated.nii.gz          # Dilated skull-stripped
 └── defaced/
     ├── not_defaced_scans.csv              # Only if failures occurred
     └── <subject>/
