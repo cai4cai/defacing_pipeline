@@ -268,7 +268,7 @@ output/
 └── defaced/
     ├── not_defaced_scans.csv              # Only if failures occurred
     └── <subject>/
-        └── hd_bet_dilated_<scan>_masked.nii.gz  # Final defaced scan
+        └── <scan>_dilated_masked.nii.gz   # Final defaced scan
 ```
 
 ### Text anonymisation
