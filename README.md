@@ -1,9 +1,9 @@
-# Defacing Pipeline
+# caideface — Head MRI/CT Defacing & Report Anonymisation
 
 [![arXiv](https://img.shields.io/badge/arXiv-2505.12999-b31b1b.svg)](https://arxiv.org/abs/2505.12999)
 [![PyPI](https://img.shields.io/pypi/v/caideface)](https://pypi.org/project/caideface/)
 
-A head MRI defacing pipeline based on affine registration that removes facial features while preserving brain structures. Described in *"A Generalisable Head MRI Defacing Pipeline: Evaluation on 2,566 Meningioma Scans"* ([arXiv:2505.12999](https://arxiv.org/abs/2505.12999)).
+A head MRI and CT defacing and text anonymisation toolkit. The image defacing pipeline uses affine registration to remove facial features while preserving brain structures, as described in *"A Generalisable Head MRI Defacing Pipeline: Evaluation on 2,566 Meningioma Scans"* ([arXiv:2505.12999](https://arxiv.org/abs/2505.12999)). The text anonymisation module uses Named Entity Recognition (NER) to detect and replace personal names in medical reports, as described in *"Evaluation of Named Entity Recognition for Automated Extraction of Present Tumor Size and Personal Names from Radiology Reports Using Spacy"* ([DOI:10.1055/s-0045-1803715](https://doi.org/10.1055/s-0045-1803715)).
 
 <p align="center">
   <img src="Pipeline_smaller.svg" alt="Pipeline overview" width="100%">
@@ -15,12 +15,12 @@ A head MRI defacing pipeline based on affine registration that removes facial fe
 - [Pipeline Overview](#pipeline-overview)
   - [Why Skull-Stripping?](#why-skull-stripping)
 - [Using the Notebooks](#using-the-notebooks)
-  - [Recommended: With Skull-Stripping](#recommended-with-skull-stripping)
-  - [Legacy: Without Skull-Stripping](#legacy-without-skull-stripping)
+  - [Recommended: caideface CLI & Python API](#recommended-caideface-cli--python-api)
+  - [Legacy Notebooks](#legacy-notebooks)
 - [Quality Assessment](#quality-assessment)
-  - [3D Rendering](#step-4-3d-rendering-of-defaced-images)
-  - [Manual Assessment](#step-5-manual-assessment)
-  - [Manual Landmark Registration](#steps-6-7-manual-landmark-registration-fallback)
+  - [3D Rendering](#3d-rendering-of-defaced-images)
+  - [Manual Assessment](#manual-assessment)
+  - [Manual Landmark Registration](#manual-landmark-registration-fallback)
 - [Requirements and Setup](#requirements-and-setup)
   - [Extracting BRAINSFit and BRAINSResample from 3D Slicer](#extracting-brainsfit-and-brainsresample-from-3d-slicer)
 - [How to Cite](#how-to-cite)
@@ -78,15 +78,17 @@ For the full CLI reference (individual steps, all options, Python API, and outpu
 
 The recommended pipeline consists of three steps:
 
-1. **Reorientation** -- Aligns scans to LAS canonical orientation (MNI152 standard).
-2. **Skull-stripping** -- Extracts a brain mask using [HD-BET](https://github.com/MIC-DKFZ/HD-BET), then dilates it (default 14 mm) to preserve peripheral brain structures. A new skull-stripped scan is generated using the dilated mask.
-3. **Registration and Defacing** -- Registers each dilated skull-stripped scan to the bundled MNI152 template via affine registration ([BRAINSFit](https://github.com/BRAINSia/BRAINSTools)), warps the template face mask into the scan's space, and applies it to remove facial features.
+1. **Reorientation** -- Aligns scans to RAS orientation (MNI152 standard).
+2. **Skull-stripping** -- Extracts brain masks, then applies dynamic dilation to preserve peripheral brain structures. MRI uses [HD-BET](https://github.com/MIC-DKFZ/HD-BET); CT uses [TotalSegmentator](https://github.com/wasserth/TotalSegmentator) (brain class from the total segmentation task).
+3. **Registration and Defacing** -- Registers each scan to a modality-matched template using BRAINSFit (affine), warps a face mask into the scan's space, and applies it to remove facial features. For CT, the background fill value is automatically detected from the volume histogram (~-1000 HU for native encoding).
 
-The [template image](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/mni_icbm152_t1_tal_nlin_sym_55_ext.nii) is sourced from the [ICBM 152 Extended Nonlinear Atlases (2020)](https://nist.mni.mcgill.ca/icbm-152-extended-nonlinear-atlases-2020/). The [face mask](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/t1_mask.nii.gz) was created with [ITK-SNAP](http://www.itksnap.org) to remove facial features while retaining as much clinical information as possible.
+**MRI:** The [template image](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/mni_icbm152_t1_tal_nlin_sym_55_ext.nii) is sourced from the [ICBM 152 Extended Nonlinear Atlases (2020)](https://nist.mni.mcgill.ca/icbm-152-extended-nonlinear-atlases-2020/). The [face mask](data/icbm152_ext55_model_sym_2020_nifti/icbm152_ext55_model_sym_2020/t1_mask.nii.gz) was created with [ITK-SNAP](http://www.itksnap.org) to remove facial features while retaining as much clinical information as possible.
+
+**CT:** The template is the CT brain atlas bundled with [TotalSegmentator](https://github.com/wasserth/TotalSegmentator). The [CT face mask](caideface/src/caideface/data/ct_face_mask.nii.gz) was created with [ITK-SNAP](http://www.itksnap.org) using the TotalSegmentator CT scan as reference.
 
 ### Why Skull-Stripping?
 
-In the legacy pipeline, full head images are registered directly to the template. This works well for standard FOV images but often fails for reduced FOV scans (slabs), where the large anatomical differences between the input and template cause the affine registration to diverge.
+In the legacy pipeline, full head images are registered directly to the template. This works well for standard FOV images but often fails for reduced FOV scans (slabs), where the large anatomical differences between the input and template cause the affine registration to diverge. Failures were also observed when the anatomy of the moving scan differs significantly from the template due to post-treatment effects (e.g. craniotomy) or differences in MRI acquisition protocol.
 
 By skull-stripping first, the registration focuses on brain anatomy only, which is far more consistent across subjects and FOV configurations. The brain mask dilation (14 mm by default) ensures that structures near the skull edge are preserved in the final defaced output.
 
@@ -94,35 +96,29 @@ By skull-stripping first, the registration focuses on brain anatomy only, which 
 
 ## Using the Notebooks
 
-> **Note:** Notebooks [1] and [2] must be run with the **3D Slicer Jupyter Notebook kernel**. To install the kernel, follow the instructions in the [SlicerJupyter](https://github.com/Slicer/SlicerJupyter) repository. Alternatively, they can be converted to Python scripts and run directly in 3D Slicer using the approach described [here](https://slicer.readthedocs.io/en/latest/developer_guide/script_repository.html#run-a-python-script-file-in-the-slicer-environment). Notebook [3] runs with a standard Python kernel.
+All notebooks are in the [`notebooks/`](notebooks/) directory.
 
-### Recommended: With Skull-Stripping
+### Recommended: caideface CLI & Python API
 
-The notebook [[1]deface_skullstripping.ipynb](%5B1%5Ddeface_skullstripping.ipynb) implements the full three-step pipeline described above:
+The notebook [deface_with_caideface.ipynb](notebooks/deface_with_caideface.ipynb) demonstrates the recommended way to run the pipeline using the `caideface` package. It covers:
 
-1. **Reorientation** to MNI152 space
-2. **Skull-stripping** with HD-BET and mask dilation
-3. **Registration and defacing** using the dilated skull-stripped scans
+- **CLI usage** — `caideface run`, `caideface reorient`, `caideface skull-strip`, `caideface deface`
+- **Python API** — `DefacePipeline`, `reorient_batch`, `skull_strip_batch`, `deface_batch`
+- **Text anonymisation** — CLI and Python API examples
+- **Output inspection** — loading and visualising defaced scans
 
-Outputs are written to the [example_output_hdbet](data/example_output_hdbet) directory.
+This notebook supports both MRI and CT modalities. It requires a conda environment with `caideface` installed and registered as a Jupyter kernel -- see the **Getting Started** section in the notebook for setup instructions.
 
-### Legacy: Without Skull-Stripping
+### Legacy Notebooks
 
-The notebook [[1]deface_with_brainsfit.ipynb](%5B1%5Ddeface_with_brainsfit.ipynb) implements the original, simpler pipeline that registers full head images directly to the template -- without reorientation or skull-stripping.
+The [`notebooks/legacy/`](notebooks/legacy/) directory contains the original inline implementations of the pipeline, preserved for reference. Consider using the recommended `caideface` notebook above instead.
 
-In the second cell, set the paths to input images, output directories, and the BRAINSFit/BRAINSResample binaries. You can also provide a list of existing manual transforms for cases that previously failed:
-
-```python
-existing_transform_paths = [None, "./data/example_input_images/IXI002-Guys-0828-T2/Transform_to_template.txt"]
-```
-
-Outputs are written to the [example_output](data/example_output) directory.
-
-> **Note:** This approach is less robust for reduced FOV images. Consider using the skull-stripping pipeline or the `caideface` CLI instead.
+- **[[1]deface_skullstripping.ipynb](notebooks/legacy/%5B1%5Ddeface_skullstripping.ipynb)** -- Full three-step pipeline (reorientation, skull-stripping with HD-BET, registration and defacing) implemented inline. Outputs to [example_output_hdbet](data/example_output_hdbet).
+- **[[1]deface_with_brainsfit.ipynb](notebooks/legacy/%5B1%5Ddeface_with_brainsfit.ipynb)** -- Simpler pipeline that registers full head images directly to the template without reorientation or skull-stripping. Less robust for reduced FOV images. Outputs to [example_output](data/example_output).
 
 ### Example Data
 
-Both notebooks use two test images from the IXI dataset:
+The notebooks use two test images from the IXI dataset:
 - [IXI002-Guys-0828-T1.nii.gz](data/example_input_images/IXI002-Guys-0828-T1/IXI002-Guys-0828-T1.nii.gz) (T1)
 - [IXI002-Guys-0828-T2.nii.gz](data/example_input_images/IXI002-Guys-0828-T2/IXI002-Guys-0828-T2.nii.gz) (T2, includes a [manual transform](data/example_input_images/IXI002-Guys-0828-T2/Transform_to_template.txt))
 
@@ -134,12 +130,12 @@ These steps are shared across both pipelines and are used to verify defacing qua
 
 ### 3D Rendering of Defaced Images
 
-The notebook [[2]facemask_rendering_with_3DSlicer.ipynb](%5B2%5Dfacemask_rendering_with_3DSlicer.ipynb) creates GIF animations of the 3D rendering of each defaced image.
+The notebook [[2]facemask_rendering_with_3DSlicer.ipynb](notebooks/%5B2%5Dfacemask_rendering_with_3DSlicer.ipynb) creates GIF animations of the 3D rendering of each defaced image. This notebook requires the **3D Slicer Jupyter Notebook kernel** -- see [SlicerJupyter](https://github.com/Slicer/SlicerJupyter) for setup instructions.
 
 
 ### Manual Assessment
 
-The notebook [[3]loop_through_all_defaced_images_and_assess_manually.ipynb](%5B3%5Dloop_through_all_defaced_images_and_assess_manually.ipynb) loops through all defaced images for manual quality review.
+The notebook [[3]loop_through_all_defaced_images_and_assess_manually.ipynb](notebooks/%5B3%5Dloop_through_all_defaced_images_and_assess_manually.ipynb) loops through all defaced images for manual quality review.
 
 For each image, the GIF rendering is displayed in MPV:
 
