@@ -11,6 +11,7 @@ Plus standalone text anonymisation via NER + HIPS (Hiding in Plain Sight).
 __version__ = "0.3.3"
 
 from .pipeline import DefacePipeline
+from .batch import run_parallel
 from .reorient import reorient_batch, reorient_single
 from .skull_strip import skull_strip_batch, skull_strip_single
 from .register import deface_batch, deface_single
@@ -19,6 +20,7 @@ from .background import detect_background_value
 
 __all__ = [
     "DefacePipeline",
+    "run_parallel",
     "reorient_batch",
     "reorient_single",
     "skull_strip_batch",

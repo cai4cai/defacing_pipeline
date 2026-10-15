@@ -2,12 +2,14 @@
 
 import logging
 import os
+from time import perf_counter
 
 import pandas as pd
 
 from .reorient import reorient_batch
 from .skull_strip import skull_strip_batch
 from .register import deface_batch
+from .morphology import BACKENDS
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,8 @@ class DefacePipeline:
         Custom MNI152 skull-stripped template. Uses bundled if None.
     face_mask_path : str or None
         Custom face mask in MNI152 space. Uses bundled if None.
+    dilation_backend : str
+        Rectangular dilation: scipy (default), separable_cpu, or cuda.
     """
 
     def __init__(
@@ -48,6 +52,7 @@ class DefacePipeline:
         background_value: float | None = None,
         target_path: str | None = None,
         face_mask_path: str | None = None,
+        dilation_backend: str = "scipy",
     ):
         self.brainsfit_path = brainsfit_path
         self.brainsresample_path = brainsresample_path
@@ -58,6 +63,9 @@ class DefacePipeline:
         self.background_value = background_value
         self.target_path = target_path
         self.face_mask_path = face_mask_path
+        if dilation_backend not in BACKENDS:
+            raise ValueError(f"Unknown dilation backend: {dilation_backend}")
+        self.dilation_backend = dilation_backend
 
     def run(
         self,
@@ -81,7 +89,8 @@ class DefacePipeline:
         Returns
         -------
         dict
-            Summary with keys: reorient_log, skull_strip_log, failed_defacing.
+            Summary with keys: reorient_log, skull_strip_log, failed_defacing,
+            and stage_seconds (wall-clock timings for selected stages).
         """
         input_dir = os.path.abspath(input_dir)
         output_dir = os.path.abspath(output_dir)
@@ -92,14 +101,16 @@ class DefacePipeline:
 
         run_steps = set(s.strip() for s in steps.split(",")) if steps != "all" else {"reorient", "skull_strip", "deface"}
 
-        results = {}
+        results = {"stage_seconds": {}}
 
         # Step 1: Reorientation
         if "reorient" in run_steps:
             logger.info("=" * 60)
             logger.info("STEP 1: Reorientation to RAS")
             logger.info("=" * 60)
+            started = perf_counter()
             reorient_log = reorient_batch(input_dir, reoriented_dir)
+            results["stage_seconds"]["reorient"] = perf_counter() - started
             results["reorient_log"] = reorient_log
         else:
             logger.info("Skipping Step 1 (reorientation)")
@@ -110,6 +121,7 @@ class DefacePipeline:
             backend = "TotalSegmentator" if self.modality == "ct" else "HD-BET"
             logger.info("STEP 2: Skull-stripping with %s", backend)
             logger.info("=" * 60)
+            started = perf_counter()
             skull_strip_log = skull_strip_batch(
                 input_dir=reoriented_dir,
                 output_dir=skullstripped_dir,
@@ -117,7 +129,9 @@ class DefacePipeline:
                 device=self.device,
                 disable_tta=self.disable_tta,
                 desired_dilation_mm=self.desired_dilation_mm,
+                dilation_backend=self.dilation_backend,
             )
+            results["stage_seconds"]["skull_strip"] = perf_counter() - started
             results["skull_strip_log"] = skull_strip_log
         else:
             logger.info("Skipping Step 2 (skull-stripping)")
@@ -127,6 +141,7 @@ class DefacePipeline:
             logger.info("=" * 60)
             logger.info("STEP 3: Registration & Defacing")
             logger.info("=" * 60)
+            started = perf_counter()
             failed = deface_batch(
                 reoriented_dir=reoriented_dir,
                 skullstripped_dir=skullstripped_dir,
@@ -138,6 +153,7 @@ class DefacePipeline:
                 face_mask_path=self.face_mask_path,
                 background_value=self.background_value,
             )
+            results["stage_seconds"]["deface"] = perf_counter() - started
             results["failed_defacing"] = failed
         else:
             logger.info("Skipping Step 3 (registration & defacing)")

@@ -5,6 +5,7 @@ import logging
 import sys
 
 from .pipeline import DefacePipeline
+from .morphology import BACKENDS
 from .reorient import reorient_batch
 from .skull_strip import skull_strip_batch, get_default_device
 from .register import deface_batch
@@ -18,6 +19,16 @@ def _setup_logging(verbose: bool):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+
+def _failed_stage_logs(results):
+    reorient = results.get("reorient_log")
+    if reorient is not None and (reorient.empty or not reorient["success"].all()):
+        return True
+    skull = results.get("skull_strip_log")
+    return skull is not None and (
+        skull.empty or any(not skull[column].isin(["success", "skipped"]).all()
+                           for column in ("brain_extract", "mask", "dilated")))
 
 
 def main():
@@ -43,10 +54,16 @@ def main():
     run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET (auto-detected if omitted)")
     run_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable HD-BET test-time augmentation (default: disabled)")
     run_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Brain mask dilation in mm (default: 14)")
+    run_parser.add_argument("--dilation-backend", choices=BACKENDS, default="scipy", help="Rectangular dilation implementation (default: scipy)")
     run_parser.add_argument("--background", type=float, default=None, help="Background value for defaced voxels (auto-detected per volume if omitted)")
     run_parser.add_argument("--template", default=None, help="Custom MNI152 skull-stripped template (uses bundled if omitted)")
     run_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space (uses bundled if omitted)")
     run_parser.add_argument("--steps", default="all", help="Steps to run: all, or comma-separated: reorient,skull_strip,deface")
+
+    run_parser.add_argument("--gpu-devices", nargs="+", help="Opt-in isolated GPU batch workers; indices within CUDA visibility or full GPU UUIDs")
+    run_parser.add_argument("--workers-per-gpu", type=int, default=1, help="Parallel processes per selected GPU")
+    run_parser.add_argument("--threads-per-worker", type=int, default=1, help="CPU thread setting for each parallel worker")
+    run_parser.add_argument("--job-timeout", type=float, default=3600, help="Parallel per-volume deadline in seconds")
 
     # --- reorient ---
     reorient_parser = subparsers.add_parser("reorient", help="Step 1: Reorient NIfTI scans to RAS", parents=[parent])
@@ -61,6 +78,7 @@ def main():
     ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET")
     ss_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable test-time augmentation")
     ss_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Dilation in mm")
+    ss_parser.add_argument("--dilation-backend", choices=BACKENDS, default="scipy", help="Rectangular dilation implementation (default: scipy)")
 
     # --- deface ---
     deface_parser = subparsers.add_parser("deface", help="Step 3: Register and deface", parents=[parent])
@@ -99,6 +117,28 @@ def main():
     _setup_logging(args.verbose)
 
     if args.command == "run":
+        if args.gpu_devices:
+            if args.steps != "all":
+                parser.error("Parallel GPU execution requires --steps all")
+            from .batch import run_parallel
+            try:
+                summary = run_parallel(
+                    args.input_dir, args.output_dir,
+                    dict(brainsfit_path=args.brainsfit, brainsresample_path=args.brainsresample,
+                         modality=args.modality, device=args.device, disable_tta=args.no_tta,
+                         desired_dilation_mm=args.dilation_mm, dilation_backend=args.dilation_backend,
+                         background_value=args.background, target_path=args.template,
+                         face_mask_path=args.face_mask),
+                    args.gpu_devices, args.workers_per_gpu, args.threads_per_worker, args.job_timeout,
+                )
+            except ValueError as exc:
+                parser.error(str(exc))
+            if summary["successful"] != summary["inputs"]:
+                sys.exit(1)
+            return
+        if (args.workers_per_gpu != 1 or args.threads_per_worker != 1 or
+                args.job_timeout != 3600):
+            parser.error("Parallel worker options require --gpu-devices")
         pipeline = DefacePipeline(
             brainsfit_path=args.brainsfit,
             brainsresample_path=args.brainsresample,
@@ -106,28 +146,32 @@ def main():
             device=args.device,
             disable_tta=args.no_tta,
             desired_dilation_mm=args.dilation_mm,
+            dilation_backend=args.dilation_backend,
             background_value=args.background,
             target_path=args.template,
             face_mask_path=args.face_mask,
         )
         results = pipeline.run(args.input_dir, args.output_dir, steps=args.steps)
         failed = results.get("failed_defacing", [])
-        if failed:
-            print(f"\n{len(failed)} scan(s) failed to deface. See output log for details.")
+        if failed or _failed_stage_logs(results):
+            print("\nOne or more processing stages failed. See output logs for details.")
             sys.exit(1)
 
     elif args.command == "reorient":
         reorient_batch(args.input_dir, args.output_dir)
 
     elif args.command == "skull-strip":
-        skull_strip_batch(
+        log = skull_strip_batch(
             args.input_dir,
             args.output_dir,
             modality=args.modality,
             device=args.device,
             disable_tta=args.no_tta,
             desired_dilation_mm=args.dilation_mm,
+            dilation_backend=args.dilation_backend,
         )
+        if _failed_stage_logs({"skull_strip_log": log}):
+            sys.exit(1)
 
     elif args.command == "deface":
         failed = deface_batch(

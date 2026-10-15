@@ -343,3 +343,76 @@ If you use the text anonymisation (NER + HIPS), please also cite:
 ## License
 
 This project is licensed under the Apache License 2.0 -- see the [LICENSE](https://github.com/cai4cai/defacing_pipeline/blob/main/LICENSE) file for details.
+
+### Optional faster rectangular dilation
+
+`run` and `skull-strip` accept `--dilation-backend scipy|separable_cpu|cuda`.
+The default remains `scipy`. The two separable implementations perform the same
+rectangular dilation in three one-dimensional passes, including SciPy's origin
+convention for even kernels and zero-valued image boundaries. `separable_cpu`
+needs no GPU; `cuda` requires a working CUDA-enabled PyTorch installation and
+returns the mask to host memory before continuing. It does not silently fall
+back to CPU. The Python API exposes the same `dilation_backend` parameter.
+
+This equivalence concerns dilation given the same input mask. Switching HD-BET
+between CPU and CUDA can change its output, and registration can introduce
+further differences. Review the resulting defacing outputs for your use case.
+
+### Explicit parallel GPU batches (MRI, POSIX)
+
+The Python equivalent is `caideface.run_parallel(input_dir, output_dir,
+pipeline_options, gpu_devices, workers_per_gpu=1, threads_per_worker=1,
+job_timeout=3600)`, where `pipeline_options` contains `DefacePipeline` constructor
+arguments.
+
+The optional `--gpu-devices` argument starts isolated subprocesses for full MRI
+pipelines. Supply GPU indices within the current `CUDA_VISIBLE_DEVICES` list, or
+full GPU UUIDs. If a visibility list is inherited, UUIDs must explicitly appear
+in that list. Existing serial execution and its output layout remain the default.
+
+```bash
+# Runtime values supplied by the caller; one worker on each selected GPU.
+caideface run "$INPUT_DIR" "$FRESH_OUTPUT_DIR" --modality mri \
+  --brainsfit "$BRAINSFIT" --brainsresample "$BRAINSRESAMPLE" \
+  --device cuda --dilation-backend cuda \
+  --gpu-devices "$GPU_A" "$GPU_B" --workers-per-gpu 1 \
+  --threads-per-worker 4 --job-timeout 3600
+
+# Two workers sharing one selected GPU.
+caideface run "$INPUT_DIR" "$FRESH_OUTPUT_DIR" --modality mri \
+  --brainsfit "$BRAINSFIT" --brainsresample "$BRAINSRESAMPLE" \
+  --device cuda --dilation-backend cuda \
+  --gpu-devices "$GPU_A" --workers-per-gpu 2 \
+  --threads-per-worker 4 --job-timeout 3600
+```
+
+Parallel execution requires a **fresh output directory**, `--steps all`, and
+CUDA MRI inference. Each input volume gets its own `jobs/<relative-path hash>/`
+directory containing `input/`, `output/`, a worker log and a result receipt.
+`parallel_summary.json` maps input-relative paths to those outputs and records
+failures and timings. Use the summary's elapsed wall time to calculate batch
+throughput; summing overlapping worker or stage times is not batch duration.
+The Python pipeline result also includes `stage_seconds` for the selected stages.
+Keep that directory in appropriate storage: the mapping
+and logs can contain sensitive filenames. Workers never append to shared stage
+CSV logs or overwrite another volume's results. Existing output directories are
+rejected, including partial earlier runs; there is no implicit retry or resume.
+
+Install the HD-BET weights before starting parallel jobs, so workers do not
+race to download shared model files. Each worker uses separate compilation-cache
+directories and receives one visible GPU before Python starts. It performs a CUDA
+computation check and runs a full pipeline for one volume at a time. Work is
+assigned as worker slots become available. A per-volume deadline kills the
+worker process group, including its HD-BET and registration children. Any failed
+or timed-out volume produces a nonzero CLI exit status after the batch. A worker
+also treats failed stage logs as failures, even if a library swallowed an error.
+
+CPU thread settings are not hard resource limits. Bound aggregate CPU, RAM and
+GPU allocation with your container or job scheduler, allowing for all workers
+and their child processes. In containers, also provide sufficient bounded shared
+memory for concurrent inference subprocesses. More workers may increase contention or exhaust
+memory. Measure completed volumes per hour, failures and memory usage on your
+hardware before choosing a worker count. Parallelism does not add GPU
+registration or persistent HD-BET model loading.
+
+Initial measurements and verification are recorded in [THROUGHPUT.md](THROUGHPUT.md).
