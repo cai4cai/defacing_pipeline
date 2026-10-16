@@ -415,4 +415,12 @@ memory. Measure completed volumes per hour, failures and memory usage on your
 hardware before choosing a worker count. Parallelism does not add GPU
 registration or persistent HD-BET model loading.
 
-Initial measurements and verification are recorded in [THROUGHPUT.md](THROUGHPUT.md).
+Worker concurrency also requires sufficient container process/thread capacity,
+in addition to CPU, RAM and VRAM. A task ceiling can stall HD-BET even when GPU
+memory is available. Install weights before launching parallel workers. Workers
+check CUDA computation and report failures; no automatic retry is performed.
+
+Always visually review defacing results, especially for limited brain coverage
+or neck-dominant acquisitions. Automated protection checks alone do not establish
+adequate defacing. See [THROUGHPUT.md](THROUGHPUT.md) for measured performance and
+comparison limits.

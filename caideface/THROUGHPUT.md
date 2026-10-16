@@ -5,6 +5,28 @@ were processed in seven fresh configurations: 42 successful attempts, no failed
 series or nonzero worker exits. Automated output comparison and upstream
 verification are complete; successful processing alone is not visual review.
 
+## Dilation and initial processing comparison
+
+Dilation was the dominant original bottleneck: the recorded brain-to-mask
+interval occupied approximately **67% of processing time**. This includes mask
+construction and I/O, so it is a proxy rather than an isolated dilation timer.
+
+| Measurement (six inputs) | Before / baseline | After / option | Speedup |
+| --- | ---: | ---: | ---: |
+| Original brain-to-mask interval → separable CPU dilation-only benchmark | ~1,688 s* | 25.87 s | ~65×* |
+| Original brain-to-mask interval → CUDA dilation-only benchmark | ~1,688 s* | 2.66 s | ~636×* |
+| Matched dilation-only benchmark: separable CPU → CUDA | 25.87 s | 2.66 s | **9.74×** |
+| Summed series processing: CPU → CUDA HD-BET + CUDA dilation | 2,511.80 s | 621.41 s | **4.04×** |
+
+*The original interval and dilation-only benchmark measure different scopes: the
+~65× and ~636× ratios are indicative, not like-for-like measured kernel speedups. Benchmark times
+are means of two repetitions of dilation on the same six saved input masks,
+without rerunning HD-BET or registration. Both accelerated backends reproduced
+the original dilation masks exactly. For a 30×30×30 box, separable passes reduce
+nominal neighbourhood work from 27,000 positions to 30 + 30 + 30 = 90, a
+**300× theoretical reduction in work**, not a measured runtime speedup.
+The full-pipeline improvement includes existing upstream CUDA HD-BET support as well as this PR's dilation change.
+
 ## End-to-end downstream throughput
 
 | Total CPU / RAM budget | Configuration | Batch wall time | Series/hour | Speedup vs one 5090 worker at the same budget |
@@ -34,7 +56,7 @@ improve the larger-budget result here. Registration remains CPU BRAINSFit.
 - CUDA HD-BET and CUDA rectangular dilation; frozen weights/reference, TTA off,
   14 mm dilation, unchanged registration and native geometry bounds.
 - Offline, unprivileged, read-only containers; fresh processing/candidate roots.
-  Reviewed outputs were preserved. GPU UUIDs and runtime roots remain private.
+  Reference outputs were preserved; GPU identifiers and runtime roots are omitted.
 - Two-worker arms partition the frozen selection into disjoint queues, balanced
   using earlier per-series timings. Their union is the complete baseline set.
 - CPU and RAM budgets are fixed within each group and split equally between
@@ -64,8 +86,9 @@ per-job deadlines and failure propagation. Stage wall timings are also exposed.
 
 The table above measures the downstream DICOM workflow, not that new upstream
 scheduler. Its synthetic and real-data smoke verification is reported
-separately below. Broader use on the user's cases remains the next validation step
-before upstream PR submission. No PR has been published.
+separately below. General resource guidance and limited-field-of-view caveats
+are described in the README; performance and output quality need assessment
+for each deployment and acquisition type.
 
 ## Output comparison and upstream verification
 
@@ -73,7 +96,7 @@ Each arm compared all 1,107 DICOM instances against the previously accepted GPU
 reference. Across all seven arms there were zero header/geometry differences,
 zero mutually retained pixel differences, zero IOD validation failures, and zero
 removed voxels inside that reference's dilated protection mask. There were no GPU
-health-check failures. The reviewed CPU configuration checksum is unchanged.
+health-check failures.
 
 All 5090-only arms reproduced the reference extraction foreground and dilated
 protection masks exactly. The 4090-only arm differed at 218 extraction-foreground
@@ -81,9 +104,10 @@ voxels and 246 dilated-mask voxels; mixed-GPU arms differed at 96 foreground vox
 and 76 or 80 dilated-mask voxels. Final native keep masks varied in every arm,
 including the fresh single-worker controls (aggregate differences ranged from
 1,259,874 to 1,771,004 voxels). This is not full-pipeline voxel identity. These
-checks use the accepted GPU reference and do not revise the earlier CPU/GPU
-numerical findings or the user's acceptance of that reference. New benchmark
-outputs retain their normal review status; no additional visual review is claimed.
+checks use a fixed GPU reference. They do not establish full-pipeline CPU/GPU
+equivalence or replace visual QC. An earlier CPU/GPU comparison found one removed
+voxel inside the CPU dilated protection mask; that finding alone does not
+establish anatomical brain removal.
 
 For the recommended shared-5090 configuration at eight CPUs, sampled device memory
 peaked at 5,615 MiB (5.48 GiB), and aggregate container memory at 9.07 GiB. These
@@ -110,13 +134,15 @@ exactly; the mixed-GPU smoke differed at 40 protection-mask voxels. All compared
 mask and defaced-image grids matched. Defaced pixel arrays varied, as in the
 repeat controls. This smoke check does not establish full-cohort output acceptance.
 
-The first upstream smoke launch failed because the local imaging container's
-HD-BET wrapper required `IMAGING_THREADS`. The harness was corrected and all three
-modes rerun into fresh destinations; the failed evidence is preserved. No
-numerical algorithm change was needed, and the workers correctly returned failure.
-The first comparison-launch attempt also rejected overlapping input/output roots;
-comparison reports were subsequently written to separate destinations. Neither
-launcher correction altered or reran the timed downstream benchmark arms.
+## Resource and acquisition limits
 
-All task-owned containers exited. Detailed case-level evidence, failed-launch
-receipts and the private operational issue log remain outside Git/GitHub.
+Concurrency requires sufficient process/thread capacity as well as CPU, RAM and
+VRAM. A container task ceiling can stall HD-BET despite available GPU memory.
+Provision this explicitly, keep thread budgets bounded, and install weights
+before launching workers. Each fresh worker checks actual CUDA computation and
+propagates failures; container GPU-access problems alone do not demonstrate an
+algorithm defect. Failed jobs require explicit investigation and rerun.
+
+Automated protection checks do not replace visual QC. Limited brain coverage or
+neck-dominant acquisitions need particular attention because successful brain
+protection checks do not establish adequate removal of identifying anatomy.

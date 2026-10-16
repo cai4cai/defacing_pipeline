@@ -1,7 +1,7 @@
 # caideface throughput PR preparation
 
 - Upstream base: `81a360cff48b7171465e7826fd1139d96da80eb5`.
-- Branch: `performance/dilation-and-batch-workers`; no PR opened or pushed.
+- Branch: `performance/dilation-and-batch-workers`.
 - User requested benchmark-supported parallelism/multi-GPU options for a future PR.
 
 Ported rectangular separable CPU/CUDA dilation from the tested downstream
@@ -12,8 +12,13 @@ parity and subprocess-scheduler tests. Container verification passed: 138 tests 
 the 4090. Three real-data scheduler smoke modes each completed two volumes.
 The downstream six-series benchmark found 1.37x throughput from two workers at
 the same eight-CPU budget; shared-GPU and multi-GPU results were effectively
-identical. Evidence and limits are in `caideface/THROUGHPUT.md`. The first smoke
-launch lacked a required local image-wrapper environment variable; corrected
-harness runs passed without numerical code changes. Upstream verification is
+identical. Evidence and limits are in `caideface/THROUGHPUT.md`. Upstream verification is
 reported separately from downstream timings. Private images, runtime issues and review evidence
 remain outside this checkout.
+
+Final submission review (2026-10-16): upstream main remains at the original base.
+No implementation TODOs remain in the changed source or tests. Updated aggregate
+benchmark documentation and acquisition/resource guidance; removed local launch
+history and stale submission TODOs. Existing container verification applies to
+the unchanged implementation. Only documentation changed during submission
+preparation. Draft PR publication is authorised by the requester.
