@@ -22,3 +22,5 @@ benchmark documentation and acquisition/resource guidance; removed local launch
 history and stale submission TODOs. Existing container verification applies to
 the unchanged implementation. Only documentation changed during submission
 preparation. Draft PR publication is authorised by the requester.
+
+Draft PR: https://github.com/cai4cai/defacing_pipeline/pull/29
