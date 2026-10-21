@@ -13,14 +13,12 @@ construction and I/O, so it is a proxy rather than an isolated dilation timer.
 
 | Measurement (six inputs) | Before / baseline | After / option | Speedup |
 | --- | ---: | ---: | ---: |
-| Original brain-to-mask interval → separable CPU dilation-only benchmark | ~1,688 s* | 25.87 s | ~65×* |
-| Original brain-to-mask interval → CUDA dilation-only benchmark | ~1,688 s* | 2.66 s | ~636×* |
 | Matched dilation-only benchmark: separable CPU → CUDA | 25.87 s | 2.66 s | **9.74×** |
 | Summed series processing: CPU → CUDA HD-BET + CUDA dilation | 2,511.80 s | 621.41 s | **4.04×** |
 
-*The original interval and dilation-only benchmark measure different scopes: the
-~65× and ~636× ratios are indicative, not like-for-like measured kernel speedups. Benchmark times
-are means of two repetitions of dilation on the same six saved input masks,
+The original brain-to-mask interval (~1,688 s) includes mask construction and
+I/O and must not be divided by a dilation-only timer to claim a kernel speedup.
+Dilation benchmark times are means of two repetitions of dilation on the same six saved input masks,
 without rerunning HD-BET or registration. Both accelerated backends reproduced
 the original dilation masks exactly. For a 30×30×30 box, separable passes reduce
 nominal neighbourhood work from 27,000 positions to 30 + 30 + 30 = 90, a
@@ -146,3 +144,38 @@ algorithm defect. Failed jobs require explicit investigation and rerun.
 Automated protection checks do not replace visual QC. Limited brain coverage or
 neck-dominant acquisitions need particular attention because successful brain
 protection checks do not establish adequate removal of identifying anatomy.
+
+## Additional worker scaling and dilation alternatives
+
+A separate NIfTI comparison processed 12 jobs (six inputs repeated twice), retaining
+BRAINSFit, CUDA HD-BET and CUDA dilation. Total budget: 16 CPU cores/quota and
+48 GiB RAM on one RTX 5090. These timings exclude DICOM conversion, export and
+validation and must not be substituted for the DICOM rates above.
+
+| Workers | Threads per worker | Batch wall time | Volumes/hour |
+|---|---:|---:|---:|
+| 2 | 8 | 374.37 s | 115.39 |
+| 4 | 4 | 293.99 s | 146.94 |
+| 8 | 2 | 270.16 s | 159.91 |
+
+Eight workers improved throughput 39% over two; four achieved 92% of eight's
+throughput. All 36 jobs completed and output comparisons found no geometry
+mismatches, reference-protection removals or changes to mutually retained pixels.
+Extraction masks had small numerical differences. One batch per configuration;
+repetitions add workload, not independent quality cases. An earlier attempt with
+four CUDA-visibility failures is retained and excluded from these timings.
+
+On six fixed masks, two warm-ups and 30 randomised rounds (540 calls) compared
+CUDA max-pool with convolution-based alternatives:
+
+| Method | Mean six-mask time |
+|---|---:|
+| Exact CUDA max-pool dilation | 2.8853 s |
+| Gaussian convolution, threshold >0 | 2.8794 s |
+| Box-average pooling, threshold >0 | 2.8398 s |
+
+All tested masks matched, but the 0.2–1.6% differences offer no material pipeline
+gain. Positive Gaussian thresholds changed masks. Retain exact max-pool dilation.
+Registration replacements are tracked in [issue #30](https://github.com/cai4cai/defacing_pipeline/issues/30).
+Batched model-loading experiments are also separate follow-ups; neither is
+included in the performance claims for this PR.
