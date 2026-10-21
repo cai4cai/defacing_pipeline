@@ -8,7 +8,7 @@ import pandas as pd
 from .reorient import reorient_batch
 from .skull_strip import skull_strip_batch
 from .register import deface_batch
-from .morphology import BACKENDS
+from .morphology import validate_dilation_backend
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,7 @@ class DefacePipeline:
         self.background_value = background_value
         self.target_path = target_path
         self.face_mask_path = face_mask_path
-        if dilation_backend not in BACKENDS:
-            raise ValueError(f"Unknown dilation backend: {dilation_backend}")
+        validate_dilation_backend(dilation_backend)
         self.dilation_backend = dilation_backend
 
     def run(

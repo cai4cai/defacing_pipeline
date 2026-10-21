@@ -8,7 +8,7 @@ import logging
 import nibabel as nib
 import numpy as np
 import pandas as pd
-from .morphology import BACKENDS, rectangular_dilation
+from .morphology import rectangular_dilation, validate_dilation_backend
 
 logger = logging.getLogger(__name__)
 
@@ -193,8 +193,7 @@ def skull_strip_single(
     dict
         Status dict with keys: input, output, brain_extract, mask, dilated.
     """
-    if dilation_backend not in BACKENDS:
-        raise ValueError(f"Unknown dilation backend: {dilation_backend}")
+    validate_dilation_backend(dilation_backend)
     filename = os.path.basename(input_file)
     stem = filename.replace(".nii.gz", "")
     subfolder = os.path.relpath(os.path.dirname(input_file), start=input_root)
@@ -316,8 +315,7 @@ def skull_strip_batch(
     pd.DataFrame
         Processing log.
     """
-    if dilation_backend not in BACKENDS:
-        raise ValueError(f"Unknown dilation backend: {dilation_backend}")
+    validate_dilation_backend(dilation_backend)
     # Validate backend is available
     if modality == "mri":
         _hd_bet_executable()
