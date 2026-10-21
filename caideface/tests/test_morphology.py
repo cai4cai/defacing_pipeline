@@ -82,8 +82,10 @@ def test_random_shapes_and_numeric_inputs(backend):
         if not torch.cuda.is_available():
             pytest.skip("CUDA device unavailable")
     rng = np.random.default_rng(42)
-    for _ in range(30):
-        shape = (1, int(rng.integers(2, 12)), int(rng.integers(2, 12)))
+    for index in range(30):
+        shape = rng.integers(1, 12, size=3)
+        if index < 3:
+            shape[index] = 1  # Guarantee singleton coverage on each axis.
         volume = np.asfortranarray(rng.integers(-2, 2, size=shape).astype(float))[:, ::-1, :]
         volume[0, 0, 0] = np.nan
         structure = get_safe_structuring_element(tuple(rng.uniform(1, 4, size=3)))

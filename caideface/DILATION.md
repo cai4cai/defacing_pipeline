@@ -51,15 +51,19 @@ HD-BET, BRAINSFit and serial processing remain unchanged. Exactness concerns
 dilation of the same input mask, not equivalence of different extraction or
 registration runs. Synthetic tests cover odd/even and oversized kernels, image
 boundaries, numeric/noncontiguous inputs, singleton axes, anisotropic uint8
-structures, early CUDA failures and CLI-to-saved-mask integration. CUDA parity
+structures, early CUDA failures and CLI forwarding and batch-to-saved-mask integration. CUDA parity
 tests skip when no GPU is available; skipped checks are not successful GPU tests.
 
 For a public synthetic comparison, run from the `caideface/` directory with the
 package installed:
 
 ```bash
-python benchmarks/dilation.py --shape 96 96 64 --kernel 14 14 14 --repeats 3 --cuda
+python benchmarks/dilation.py --shape 96 96 64 --kernel 14 14 14 --repeats 3 --pattern ellipsoid --cuda
 ```
+
+The `ellipsoid` pattern is a centred solid blob with radii one third of each
+image dimension. The default `random` pattern sets each voxel with 1% probability.
+Mask geometry affects runtime; neither synthetic pattern represents every scan.
 
 Omit `--cuda` for CPU-only testing. The script reports exact dimensions, individual
 call times and preflight time (including torch import/CUDA initialisation when
