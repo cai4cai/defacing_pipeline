@@ -2,7 +2,6 @@
 
 import logging
 import os
-from time import perf_counter
 
 import pandas as pd
 
@@ -89,8 +88,7 @@ class DefacePipeline:
         Returns
         -------
         dict
-            Summary with keys: reorient_log, skull_strip_log, failed_defacing,
-            and stage_seconds (wall-clock timings for selected stages).
+            Summary with keys: reorient_log, skull_strip_log, failed_defacing.
         """
         input_dir = os.path.abspath(input_dir)
         output_dir = os.path.abspath(output_dir)
@@ -101,16 +99,14 @@ class DefacePipeline:
 
         run_steps = set(s.strip() for s in steps.split(",")) if steps != "all" else {"reorient", "skull_strip", "deface"}
 
-        results = {"stage_seconds": {}}
+        results = {}
 
         # Step 1: Reorientation
         if "reorient" in run_steps:
             logger.info("=" * 60)
             logger.info("STEP 1: Reorientation to RAS")
             logger.info("=" * 60)
-            started = perf_counter()
             reorient_log = reorient_batch(input_dir, reoriented_dir)
-            results["stage_seconds"]["reorient"] = perf_counter() - started
             results["reorient_log"] = reorient_log
         else:
             logger.info("Skipping Step 1 (reorientation)")
@@ -121,7 +117,6 @@ class DefacePipeline:
             backend = "TotalSegmentator" if self.modality == "ct" else "HD-BET"
             logger.info("STEP 2: Skull-stripping with %s", backend)
             logger.info("=" * 60)
-            started = perf_counter()
             skull_strip_log = skull_strip_batch(
                 input_dir=reoriented_dir,
                 output_dir=skullstripped_dir,
@@ -131,7 +126,6 @@ class DefacePipeline:
                 desired_dilation_mm=self.desired_dilation_mm,
                 dilation_backend=self.dilation_backend,
             )
-            results["stage_seconds"]["skull_strip"] = perf_counter() - started
             results["skull_strip_log"] = skull_strip_log
         else:
             logger.info("Skipping Step 2 (skull-stripping)")
@@ -141,7 +135,6 @@ class DefacePipeline:
             logger.info("=" * 60)
             logger.info("STEP 3: Registration & Defacing")
             logger.info("=" * 60)
-            started = perf_counter()
             failed = deface_batch(
                 reoriented_dir=reoriented_dir,
                 skullstripped_dir=skullstripped_dir,
@@ -153,7 +146,6 @@ class DefacePipeline:
                 face_mask_path=self.face_mask_path,
                 background_value=self.background_value,
             )
-            results["stage_seconds"]["deface"] = perf_counter() - started
             results["failed_defacing"] = failed
         else:
             logger.info("Skipping Step 3 (registration & defacing)")

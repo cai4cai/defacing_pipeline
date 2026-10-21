@@ -70,7 +70,5 @@ def test_pipeline_forwards_backend(tmp_path, monkeypatch):
     p = DefacePipeline("brainsfit", "brainsresample", dilation_backend="separable_cpu")
     result = p.run(str(tmp_path), str(tmp_path / "out"), steps="skull_strip")
     assert result["skull_strip_log"] == "done"
-    assert set(result["stage_seconds"]) == {"skull_strip"}
-    assert result["stage_seconds"]["skull_strip"] >= 0
     assert seen["dilation_backend"] == "separable_cpu"
     assert DefacePipeline("brainsfit", "brainsresample").dilation_backend == "scipy"
