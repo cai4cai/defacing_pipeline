@@ -347,8 +347,9 @@ This project is licensed under the Apache License 2.0 -- see the [LICENSE](https
 ### Optional faster rectangular dilation
 
 `run` and `skull-strip` accept `--dilation-backend scipy|separable_cpu|cuda`.
-The default remains `scipy`. The two separable implementations perform the same
-rectangular dilation in three one-dimensional passes, including SciPy's origin
+The default remains `scipy`. The two separable implementations replace one full 3D box dilation with three
+successive 1D dilations along X, Y and Z. For a solid rectangular box the result
+is identical, including SciPy's origin
 convention for even kernels and zero-valued image boundaries. `separable_cpu`
 needs no GPU; `cuda` requires a working CUDA-enabled PyTorch installation and
 returns the mask to host memory before continuing. It does not silently fall
