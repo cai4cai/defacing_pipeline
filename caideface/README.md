@@ -134,12 +134,30 @@ This creates three subdirectories under `./output`:
 | `--modality` | *required* | Image modality: `mri` or `ct` |
 | `--device` | auto-detected | `cpu` or `cuda` for brain extraction |
 | `--no-tta` | on | Disable HD-BET test-time augmentation (MRI only) |
+| `--dilation-backend` | `cpu` | Separable PyTorch dilation: `cpu` or `cuda` |
 | `--dilation-mm` | `14.0` | Brain mask dilation in mm |
 | `--background` | auto-detected | Background fill value (auto-detected per volume; override with explicit value) |
 | `--template` | bundled | Custom skull-stripped template |
 | `--face-mask` | bundled | Custom face mask in template space |
 | `--steps` | `all` | Run specific steps: `reorient`, `skull_strip`, `deface` (comma-separated) |
 | `-v` | off | Verbose/debug logging |
+
+### Optional faster rectangular dilation
+
+`run` and `skull-strip` accept `--dilation-backend cpu|cuda`.
+The default is `cpu`. Both devices use the same PyTorch implementation to replace one full 3D box dilation with three
+successive 1D dilations along X, Y and Z. For a solid rectangular box the result
+is identical, including SciPy's origin
+convention for even kernels and zero-valued image boundaries. `cpu`
+needs no GPU; `cuda` requires a working CUDA-enabled PyTorch installation and
+returns the mask to host memory before continuing. It does not silently fall
+back to CPU. The Python API exposes the same `dilation_backend` parameter.
+
+This equivalence concerns dilation given the same input mask. Switching HD-BET
+between CPU and CUDA can change its output, and registration can introduce
+further differences. Review the resulting defacing outputs for your use case.
+
+See [DILATION.md](DILATION.md) for matched dilation benchmarks and limits.
 
 ### CLI -- Individual defacing steps
 

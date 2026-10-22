@@ -8,6 +8,7 @@ import pandas as pd
 from .reorient import reorient_batch
 from .skull_strip import skull_strip_batch
 from .register import deface_batch
+from .morphology import validate_dilation_backend
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,8 @@ class DefacePipeline:
         Custom MNI152 skull-stripped template. Uses bundled if None.
     face_mask_path : str or None
         Custom face mask in MNI152 space. Uses bundled if None.
+    dilation_backend : str
+        Rectangular dilation: cpu (default) or cuda; both use separable PyTorch pooling.
     """
 
     def __init__(
@@ -48,6 +51,7 @@ class DefacePipeline:
         background_value: float | None = None,
         target_path: str | None = None,
         face_mask_path: str | None = None,
+        dilation_backend: str = "cpu",
     ):
         self.brainsfit_path = brainsfit_path
         self.brainsresample_path = brainsresample_path
@@ -58,6 +62,8 @@ class DefacePipeline:
         self.background_value = background_value
         self.target_path = target_path
         self.face_mask_path = face_mask_path
+        validate_dilation_backend(dilation_backend)
+        self.dilation_backend = dilation_backend
 
     def run(
         self,
@@ -117,6 +123,7 @@ class DefacePipeline:
                 device=self.device,
                 disable_tta=self.disable_tta,
                 desired_dilation_mm=self.desired_dilation_mm,
+                dilation_backend=self.dilation_backend,
             )
             results["skull_strip_log"] = skull_strip_log
         else:
