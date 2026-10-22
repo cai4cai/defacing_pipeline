@@ -4,6 +4,7 @@ import json
 import time
 
 import numpy as np
+from scipy.ndimage import binary_dilation
 
 from caideface.morphology import rectangular_dilation, validate_dilation_backend
 
@@ -27,19 +28,25 @@ def main():
         mask = (axes[0][:, None, None] ** 2 + axes[1][None, :, None] ** 2
                 + axes[2][None, None, :] ** 2) <= 1
     structure = np.ones(args.kernel, dtype=np.uint8)
-    backends = ["scipy", "separable_cpu"] + (["cuda"] if args.cuda else [])
+    backends = ["scipy", "cpu"] + (["cuda"] if args.cuda else [])
     startup = time.perf_counter()
     for backend in backends:
-        validate_dilation_backend(backend)
+        if backend != "scipy":
+            validate_dilation_backend(backend)
     startup = time.perf_counter() - startup
-    reference = rectangular_dilation(mask, structure)
+    def dilate(backend):
+        if backend == "scipy":
+            return binary_dilation(mask, structure=structure)
+        return rectangular_dilation(mask, structure, backend)
+
+    reference = dilate("scipy")
     timings = {backend: [] for backend in backends}
     for backend in backends:
-        rectangular_dilation(mask, structure, backend)
+        dilate(backend)
     for _ in range(args.repeats):
         for backend in rng.permutation(backends):
             start = time.perf_counter()
-            actual = rectangular_dilation(mask, structure, backend)
+            actual = dilate(backend)
             elapsed = time.perf_counter() - start
             np.testing.assert_array_equal(actual, reference)
             timings[backend].append(elapsed)

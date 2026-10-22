@@ -29,6 +29,7 @@ dependencies = [
     "natsort>=8.0",
     "tqdm>=4.60",
     "hd-bet",
+    "torch",
     "spacy>=3.5",
     "faker>=18.0",
 ]

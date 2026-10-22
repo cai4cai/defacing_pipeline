@@ -44,7 +44,7 @@ def main():
     run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET (auto-detected if omitted)")
     run_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable HD-BET test-time augmentation (default: disabled)")
     run_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Brain mask dilation in mm (default: 14)")
-    run_parser.add_argument("--dilation-backend", choices=BACKENDS, default="scipy", help="Rectangular dilation implementation (default: scipy)")
+    run_parser.add_argument("--dilation-backend", choices=BACKENDS, default="cpu", help="Rectangular dilation implementation (default: cpu)")
     run_parser.add_argument("--background", type=float, default=None, help="Background value for defaced voxels (auto-detected per volume if omitted)")
     run_parser.add_argument("--template", default=None, help="Custom MNI152 skull-stripped template (uses bundled if omitted)")
     run_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space (uses bundled if omitted)")
@@ -63,7 +63,7 @@ def main():
     ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET")
     ss_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable test-time augmentation")
     ss_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Dilation in mm")
-    ss_parser.add_argument("--dilation-backend", choices=BACKENDS, default="scipy", help="Rectangular dilation implementation (default: scipy)")
+    ss_parser.add_argument("--dilation-backend", choices=BACKENDS, default="cpu", help="Rectangular dilation implementation (default: cpu)")
 
     # --- deface ---
     deface_parser = subparsers.add_parser("deface", help="Step 3: Register and deface", parents=[parent])

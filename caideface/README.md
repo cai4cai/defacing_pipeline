@@ -134,7 +134,7 @@ This creates three subdirectories under `./output`:
 | `--modality` | *required* | Image modality: `mri` or `ct` |
 | `--device` | auto-detected | `cpu` or `cuda` for brain extraction |
 | `--no-tta` | on | Disable HD-BET test-time augmentation (MRI only) |
-| `--dilation-backend` | `scipy` | Rectangular dilation: `scipy`, `separable_cpu` or `cuda` |
+| `--dilation-backend` | `cpu` | Separable PyTorch dilation: `cpu` or `cuda` |
 | `--dilation-mm` | `14.0` | Brain mask dilation in mm |
 | `--background` | auto-detected | Background fill value (auto-detected per volume; override with explicit value) |
 | `--template` | bundled | Custom skull-stripped template |
@@ -144,11 +144,11 @@ This creates three subdirectories under `./output`:
 
 ### Optional faster rectangular dilation
 
-`run` and `skull-strip` accept `--dilation-backend scipy|separable_cpu|cuda`.
-The default remains `scipy`. The two separable implementations replace one full 3D box dilation with three
+`run` and `skull-strip` accept `--dilation-backend cpu|cuda`.
+The default is `cpu`. Both devices use the same PyTorch implementation to replace one full 3D box dilation with three
 successive 1D dilations along X, Y and Z. For a solid rectangular box the result
 is identical, including SciPy's origin
-convention for even kernels and zero-valued image boundaries. `separable_cpu`
+convention for even kernels and zero-valued image boundaries. `cpu`
 needs no GPU; `cuda` requires a working CUDA-enabled PyTorch installation and
 returns the mask to host memory before continuing. It does not silently fall
 back to CPU. The Python API exposes the same `dilation_backend` parameter.

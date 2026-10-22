@@ -165,7 +165,7 @@ def skull_strip_single(
     device: str = "cpu",
     disable_tta: bool = True,
     desired_dilation_mm: float = 14.0,
-    dilation_backend: str = "scipy",
+    dilation_backend: str = "cpu",
 ) -> dict:
     """Extract brain, create dilated mask, and apply it to a single NIfTI file.
 
@@ -186,7 +186,7 @@ def skull_strip_single(
     desired_dilation_mm : float
         Physical dilation size in mm for mask expansion.
     dilation_backend : str
-        Rectangular dilation: scipy (default), separable_cpu, or cuda.
+        Rectangular dilation: cpu (default) or cuda; both use separable PyTorch pooling.
 
     Returns
     -------
@@ -286,7 +286,7 @@ def skull_strip_batch(
     device: str | None = None,
     disable_tta: bool = True,
     desired_dilation_mm: float = 14.0,
-    dilation_backend: str = "scipy",
+    dilation_backend: str = "cpu",
 ) -> pd.DataFrame:
     """Run skull-stripping on all 3D NIfTI volumes under *input_dir*.
 
@@ -308,7 +308,7 @@ def skull_strip_batch(
     desired_dilation_mm : float
         Physical dilation in mm.
     dilation_backend : str
-        Rectangular dilation: scipy (default), separable_cpu, or cuda.
+        Rectangular dilation: cpu (default) or cuda; both use separable PyTorch pooling.
 
     Returns
     -------

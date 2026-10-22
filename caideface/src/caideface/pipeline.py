@@ -37,7 +37,7 @@ class DefacePipeline:
     face_mask_path : str or None
         Custom face mask in MNI152 space. Uses bundled if None.
     dilation_backend : str
-        Rectangular dilation: scipy (default), separable_cpu, or cuda.
+        Rectangular dilation: cpu (default) or cuda; both use separable PyTorch pooling.
     """
 
     def __init__(
@@ -51,7 +51,7 @@ class DefacePipeline:
         background_value: float | None = None,
         target_path: str | None = None,
         face_mask_path: str | None = None,
-        dilation_backend: str = "scipy",
+        dilation_backend: str = "cpu",
     ):
         self.brainsfit_path = brainsfit_path
         self.brainsresample_path = brainsresample_path

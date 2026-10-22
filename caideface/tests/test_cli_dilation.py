@@ -5,7 +5,7 @@ from caideface import cli
 
 
 @pytest.mark.parametrize('command', ['run', 'skull-strip'])
-@pytest.mark.parametrize('backend', [None, 'separable_cpu', 'cuda'])
+@pytest.mark.parametrize('backend', [None, 'cpu', 'cuda'])
 def test_backend_forwarding(monkeypatch, command, backend):
     seen = {}
     class Pipeline:
@@ -24,4 +24,4 @@ def test_backend_forwarding(monkeypatch, command, backend):
         argv += ['--dilation-backend', backend]
     monkeypatch.setattr(sys, 'argv', argv)
     cli.main()
-    assert seen['dilation_backend'] == (backend or 'scipy')
+    assert seen['dilation_backend'] == (backend or 'cpu')
