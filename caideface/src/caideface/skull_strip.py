@@ -8,7 +8,8 @@ import logging
 import nibabel as nib
 import numpy as np
 import pandas as pd
-from .morphology import rectangular_dilation, validate_dilation_backend
+import torch
+from .morphology import rectangular_dilation, validate_device
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,6 @@ def skull_strip_single(
     device: str = "cpu",
     disable_tta: bool = True,
     desired_dilation_mm: float = 14.0,
-    dilation_backend: str = "cpu",
 ) -> dict:
     """Extract brain, create dilated mask, and apply it to a single NIfTI file.
 
@@ -180,20 +180,18 @@ def skull_strip_single(
     modality : str
         ``'mri'`` (uses HD-BET) or ``'ct'`` (uses TotalSegmentator).
     device : str
-        'cpu' or 'cuda'.
+        'cpu' or 'cuda' for brain extraction and dilation.
     disable_tta : bool
         Disable HD-BET test-time augmentation (MRI only).
     desired_dilation_mm : float
         Physical dilation size in mm for mask expansion.
-    dilation_backend : str
-        Rectangular dilation: cpu (default) or cuda; both use separable PyTorch pooling.
 
     Returns
     -------
     dict
         Status dict with keys: input, output, brain_extract, mask, dilated.
     """
-    validate_dilation_backend(dilation_backend)
+    validate_device(device)
     filename = os.path.basename(input_file)
     stem = filename.replace(".nii.gz", "")
     subfolder = os.path.relpath(os.path.dirname(input_file), start=input_root)
@@ -245,7 +243,8 @@ def skull_strip_single(
 
             voxel_sizes = img.header.get_zooms()[:3]
             struct_elem = get_safe_structuring_element(voxel_sizes, desired_dilation_mm)
-            dilated_data = rectangular_dilation(binary_volume, struct_elem, dilation_backend)
+            mask_tensor = torch.as_tensor(binary_volume, device=device)
+            dilated_data = rectangular_dilation(mask_tensor, struct_elem).cpu().numpy()
 
             nib.save(nib.Nifti1Image(dilated_data, img.affine, img.header), mask_file)
             status["mask"] = "success" if os.path.exists(mask_file) else "failed"
@@ -286,7 +285,6 @@ def skull_strip_batch(
     device: str | None = None,
     disable_tta: bool = True,
     desired_dilation_mm: float = 14.0,
-    dilation_backend: str = "cpu",
 ) -> pd.DataFrame:
     """Run skull-stripping on all 3D NIfTI volumes under *input_dir*.
 
@@ -302,21 +300,22 @@ def skull_strip_batch(
     modality : str
         ``'mri'`` (HD-BET) or ``'ct'`` (TotalSegmentator).
     device : str or None
-        'cpu' or 'cuda'. Auto-detected if None.
+        'cpu' or 'cuda' for brain extraction and dilation. Auto-detected if None.
     disable_tta : bool
         Disable test-time augmentation (MRI/HD-BET only).
     desired_dilation_mm : float
         Physical dilation in mm.
-    dilation_backend : str
-        Rectangular dilation: cpu (default) or cuda; both use separable PyTorch pooling.
 
     Returns
     -------
     pd.DataFrame
         Processing log.
     """
-    validate_dilation_backend(dilation_backend)
-    # Validate backend is available
+    if device is None:
+        device = get_default_device()
+    validate_device(device)
+
+    # Validate brain extraction is available
     if modality == "mri":
         _hd_bet_executable()
     elif modality == "ct":
@@ -327,9 +326,6 @@ def skull_strip_batch(
                 "TotalSegmentator is required for CT skull-stripping.\n"
                 "Install it with: pip install caideface[ct]"
             )
-
-    if device is None:
-        device = get_default_device()
 
     input_dir = os.path.abspath(input_dir)
     output_dir = os.path.abspath(output_dir)
@@ -351,7 +347,6 @@ def skull_strip_batch(
                 device=device,
                 disable_tta=disable_tta,
                 desired_dilation_mm=desired_dilation_mm,
-                dilation_backend=dilation_backend,
             )
             log_data.append(result)
 

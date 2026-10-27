@@ -5,7 +5,6 @@ import logging
 import sys
 
 from .pipeline import DefacePipeline
-from .morphology import BACKENDS
 from .reorient import reorient_batch
 from .skull_strip import skull_strip_batch, get_default_device
 from .register import deface_batch
@@ -41,10 +40,9 @@ def main():
     run_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
     run_parser.add_argument("--brainsfit", required=True, help="Path to BRAINSFit executable")
     run_parser.add_argument("--brainsresample", required=True, help="Path to BRAINSResample executable")
-    run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET (auto-detected if omitted)")
+    run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for brain extraction and dilation (auto-detected if omitted)")
     run_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable HD-BET test-time augmentation (default: disabled)")
     run_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Brain mask dilation in mm (default: 14)")
-    run_parser.add_argument("--dilation-backend", choices=BACKENDS, default="cpu", help="Rectangular dilation implementation (default: cpu)")
     run_parser.add_argument("--background", type=float, default=None, help="Background value for defaced voxels (auto-detected per volume if omitted)")
     run_parser.add_argument("--template", default=None, help="Custom MNI152 skull-stripped template (uses bundled if omitted)")
     run_parser.add_argument("--face-mask", default=None, help="Custom face mask in MNI152 space (uses bundled if omitted)")
@@ -60,10 +58,9 @@ def main():
     ss_parser.add_argument("input_dir", help="Directory with reoriented NIfTI files")
     ss_parser.add_argument("output_dir", help="Output directory for skull-stripped results")
     ss_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
-    ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET")
+    ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for brain extraction and dilation")
     ss_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable test-time augmentation")
     ss_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Dilation in mm")
-    ss_parser.add_argument("--dilation-backend", choices=BACKENDS, default="cpu", help="Rectangular dilation implementation (default: cpu)")
 
     # --- deface ---
     deface_parser = subparsers.add_parser("deface", help="Step 3: Register and deface", parents=[parent])
@@ -109,7 +106,6 @@ def main():
             device=args.device,
             disable_tta=args.no_tta,
             desired_dilation_mm=args.dilation_mm,
-            dilation_backend=args.dilation_backend,
             background_value=args.background,
             target_path=args.template,
             face_mask_path=args.face_mask,
@@ -131,7 +127,6 @@ def main():
             device=args.device,
             disable_tta=args.no_tta,
             desired_dilation_mm=args.dilation_mm,
-            dilation_backend=args.dilation_backend,
         )
 
     elif args.command == "deface":

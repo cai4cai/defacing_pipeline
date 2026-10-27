@@ -132,9 +132,8 @@ This creates three subdirectories under `./output`:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--modality` | *required* | Image modality: `mri` or `ct` |
-| `--device` | auto-detected | `cpu` or `cuda` for brain extraction |
+| `--device` | auto-detected | `cpu` or `cuda` for brain extraction and dilation |
 | `--no-tta` | on | Disable HD-BET test-time augmentation (MRI only) |
-| `--dilation-backend` | `cpu` | Separable PyTorch dilation: `cpu` or `cuda` |
 | `--dilation-mm` | `14.0` | Brain mask dilation in mm |
 | `--background` | auto-detected | Background fill value (auto-detected per volume; override with explicit value) |
 | `--template` | bundled | Custom skull-stripped template |
@@ -144,14 +143,16 @@ This creates three subdirectories under `./output`:
 
 ### Optional faster rectangular dilation
 
-`run` and `skull-strip` accept `--dilation-backend cpu|cuda`.
-The default is `cpu`. Both devices use the same PyTorch implementation to replace one full 3D box dilation with three
-successive 1D dilations along X, Y and Z. For a solid rectangular box the result
-is identical, including SciPy's origin
-convention for even kernels and zero-valued image boundaries. `cpu`
-needs no GPU; `cuda` requires a working CUDA-enabled PyTorch installation and
-returns the mask to host memory before continuing. It does not silently fall
-back to CPU. The Python API exposes the same `dilation_backend` parameter.
+`run` and `skull-strip` use the existing `--device cpu|cuda` option for both
+brain extraction and dilation. When omitted, CUDA is selected if available,
+otherwise CPU. The Python API uses the same `device` parameter.
+
+Dilation replaces one full 3D box operation with three successive 1D pooling
+passes along X, Y and Z. The result is identical for a solid rectangular box,
+including SciPy's origin convention for even kernels and zero-valued image
+boundaries. Pooling runs on the mask tensor's device; the saved mask is returned
+to host memory. The selected device is checked before extraction, with no silent
+CPU fallback.
 
 This equivalence concerns dilation given the same input mask. Switching HD-BET
 between CPU and CUDA can change its output, and registration can introduce

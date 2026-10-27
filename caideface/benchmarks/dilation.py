@@ -4,9 +4,10 @@ import json
 import time
 
 import numpy as np
+import torch
 from scipy.ndimage import binary_dilation
 
-from caideface.morphology import rectangular_dilation, validate_dilation_backend
+from caideface.morphology import rectangular_dilation, validate_device
 
 
 def main():
@@ -28,28 +29,29 @@ def main():
         mask = (axes[0][:, None, None] ** 2 + axes[1][None, :, None] ** 2
                 + axes[2][None, None, :] ** 2) <= 1
     structure = np.ones(args.kernel, dtype=np.uint8)
-    backends = ["scipy", "cpu"] + (["cuda"] if args.cuda else [])
+    methods = ["scipy", "cpu"] + (["cuda"] if args.cuda else [])
     startup = time.perf_counter()
-    for backend in backends:
-        if backend != "scipy":
-            validate_dilation_backend(backend)
+    for method in methods:
+        if method != "scipy":
+            validate_device(method)
     startup = time.perf_counter() - startup
-    def dilate(backend):
-        if backend == "scipy":
+    def dilate(method):
+        if method == "scipy":
             return binary_dilation(mask, structure=structure)
-        return rectangular_dilation(mask, structure, backend)
+        tensor = torch.as_tensor(mask, device=method)
+        return rectangular_dilation(tensor, structure).cpu().numpy()
 
     reference = dilate("scipy")
-    timings = {backend: [] for backend in backends}
-    for backend in backends:
-        dilate(backend)
+    timings = {method: [] for method in methods}
+    for method in methods:
+        dilate(method)
     for _ in range(args.repeats):
-        for backend in rng.permutation(backends):
+        for method in rng.permutation(methods):
             start = time.perf_counter()
-            actual = dilate(backend)
+            actual = dilate(method)
             elapsed = time.perf_counter() - start
             np.testing.assert_array_equal(actual, reference)
-            timings[backend].append(elapsed)
+            timings[method].append(elapsed)
     print(json.dumps({"shape": args.shape, "kernel": args.kernel,
                       "seed": 42, "pattern": args.pattern,
                       "foreground_fraction": float(mask.mean()),

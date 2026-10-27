@@ -1,11 +1,11 @@
-# Exact rectangular dilation backends
+# Exact rectangular dilation
 
 ## Current implementation: public synthetic comparison
 
 | Method | Median dilation time (one mask, 3 rounds) | Speedup relative to main |
 |---|---:|---:|
 | Original full 3D SciPy dilation | 0.531 s | 1× |
-| PyTorch separable CPU (default) | 0.0319 s | about 17× |
+| PyTorch separable CPU | 0.0319 s | about 17× |
 | PyTorch separable CUDA | 0.00198 s | about 270× |
 
 A solid ellipsoid in a 96×96×64 array, radii one third of each dimension,
@@ -32,7 +32,7 @@ not change process-wide thread settings.
 
 These are indicative dilation-only measurements, not whole-pipeline speedups.
 Six precomputed binary masks were measured once per method on a shared workstation,
-with backend order rotated between inputs. Settings were identical: the existing
+with method order rotated between inputs. Settings were identical: the existing
 14 mm parameter and per-input rectangular kernels capped at 30 voxels per axis.
 All six outputs matched main exactly. The inputs are not distributed, and their
 shapes, spacings and kernel sizes are not reported here, so this table is not a
@@ -57,21 +57,24 @@ At the 30×30×30 kernel cap, it falls from 27,000 to 90 (300×). With the defau
 parameter, that cap is reached at approximately 0.47 mm spacing or smaller along
 each axis. These are theoretical work reductions, not measured runtime speedups.
 
-`cpu` is the default; `cuda` is opt-in. Both use the same separable PyTorch
-float32 max-pooling implementation, preserving even-kernel origins and zero
-boundaries. SciPy is only a test/benchmark reference, not a selectable dilation
-backend. The implementation returns a NumPy boolean
-mask, transferring one byte per voxel to the host. Intermediate and padded tensors
-still require substantially more GPU memory than the input boolean mask; allow
-several float32 volume copies plus padding and memory used by other stages.
-The CUDA backend uses the current PyTorch device, respecting `CUDA_VISIBLE_DEVICES`,
-independently of the brain-extraction `--device` option.
+The existing `--device cpu|cuda` option controls both brain extraction and dilation.
+If omitted, the pipeline selects CUDA when available, otherwise CPU. The Python
+API uses `device`; there is no separate dilation selector. The pooling function
+accepts a tensor and returns a boolean tensor on that same device. The pipeline
+transfers the boolean mask to the host for saving (one byte per voxel).
 
-CUDA is opt-in. Pipeline construction and skull-stripping entry points check CUDA
-availability and execute a small pooling operation before extraction. Failures
-propagate instead of falling back to CPU. This does not guarantee sufficient
-memory for a full volume: later per-file failures retain existing pipeline error
-handling and must be checked in the processing log.
+Both devices use the same separable float32 pooling implementation. Intermediate
+and padded tensors require substantially more memory than a boolean mask; allow
+several float32 volume copies plus padding and memory used by other stages.
+CUDA respects `CUDA_VISIBLE_DEVICES`. The tensor operation has no CPU/CUDA
+allowlist, but other devices such as MPS are not validated for the complete
+extraction pipeline; the CLI retains its existing CPU/CUDA choices.
+
+Pipeline construction and skull-stripping entry points exercise a small pooling
+operation on the selected device before extraction. Failures propagate rather
+than falling back to CPU. This does not guarantee sufficient memory for a full
+volume: later per-file failures retain existing pipeline error handling and must
+be checked in the processing log.
 
 HD-BET, BRAINSFit and serial processing remain unchanged. Exactness concerns
 dilation of the same input mask, not equivalence of different extraction or
@@ -92,6 +95,5 @@ image dimension. The default `random` pattern sets each voxel with 1% probabilit
 Mask geometry affects runtime; neither synthetic pattern represents every scan.
 
 Omit `--cuda` for CPU-only testing. The script reports exact dimensions, individual
-call times and preflight time (including torch import/CUDA initialisation when
-selected), checks equality outside the timer, and warms each backend before
+call times and device preflight time (excluding torch import), checks equality outside the timer, and warms each method before
 randomising timed call order. It does not reproduce the private six-mask table.

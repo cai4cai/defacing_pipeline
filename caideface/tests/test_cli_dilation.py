@@ -1,12 +1,12 @@
-"""Forward the optional backend without changing serial CLI behaviour."""
+"""Forward the shared device without changing serial CLI behaviour."""
 import sys
 import pytest
 from caideface import cli
 
 
 @pytest.mark.parametrize('command', ['run', 'skull-strip'])
-@pytest.mark.parametrize('backend', [None, 'cpu', 'cuda'])
-def test_backend_forwarding(monkeypatch, command, backend):
+@pytest.mark.parametrize('device', [None, 'cpu', 'cuda'])
+def test_device_forwarding(monkeypatch, command, device):
     seen = {}
     class Pipeline:
         def __init__(self, **kwargs):
@@ -20,8 +20,8 @@ def test_backend_forwarding(monkeypatch, command, backend):
     argv = ['caideface', command, 'input', 'output', '--modality', 'mri']
     if command == 'run':
         argv += ['--brainsfit', 'fit', '--brainsresample', 'resample']
-    if backend:
-        argv += ['--dilation-backend', backend]
+    if device:
+        argv += ['--device', device]
     monkeypatch.setattr(sys, 'argv', argv)
     cli.main()
-    assert seen['dilation_backend'] == (backend or 'cpu')
+    assert seen['device'] == device

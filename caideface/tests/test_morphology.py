@@ -2,16 +2,25 @@
 
 import numpy as np
 import pytest
+import torch
 from scipy.ndimage import binary_dilation
 
-from caideface.morphology import rectangular_dilation
+from caideface.morphology import rectangular_dilation, validate_device
 
 
-@pytest.mark.parametrize("backend", ["cpu", "cuda"])
+def dilate_numpy(volume, structure, device="cpu"):
+    tensor = torch.as_tensor(np.ascontiguousarray(volume), device=device)
+    result = rectangular_dilation(tensor, structure)
+    assert result.device == tensor.device
+    assert result.dtype == torch.bool
+    return result.cpu().numpy()
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("kernel", [(1, 1, 1), (2, 4, 6), (3, 5, 7), (14, 14, 14), (30, 2, 3)])
 @pytest.mark.parametrize("pattern", ["empty", "full", "corners", "random"])
-def test_rectangular_parity(backend, kernel, pattern):
-    if backend == "cuda":
+def test_rectangular_parity(device, kernel, pattern):
+    if device == "cuda":
         torch = pytest.importorskip("torch")
         if not torch.cuda.is_available():
             pytest.skip("CUDA device unavailable")
@@ -23,7 +32,7 @@ def test_rectangular_parity(backend, kernel, pattern):
     elif pattern == "random":
         volume = np.random.default_rng(17).random(volume.shape) < 0.04
     structure = np.ones(kernel, dtype=bool)
-    actual = rectangular_dilation(volume, structure, backend)
+    actual = dilate_numpy(volume, structure, device)
     assert actual.dtype == np.bool_
     np.testing.assert_array_equal(actual, binary_dilation(volume, structure=structure))
 
@@ -32,32 +41,20 @@ def test_noncontiguous_input():
     volume = np.arange(60).reshape(3, 4, 5)[::-1, :, ::-1] % 11 == 0
     structure = np.ones((2, 3, 4), dtype=bool)
     np.testing.assert_array_equal(
-        rectangular_dilation(volume, structure, "cpu"),
+        dilate_numpy(volume, structure, "cpu"),
         binary_dilation(volume, structure=structure),
     )
 
 
-@pytest.mark.parametrize("backend", ["cpu", "cuda"])
-def test_reject_nonrectangular_structure(backend):
+def test_reject_nonrectangular_structure():
     structure = np.ones((3, 3, 3), dtype=bool)
     structure[0, 0, 0] = False
     with pytest.raises(ValueError, match="solid rectangular"):
-        rectangular_dilation(np.ones((4, 4, 4)), structure, backend)
+        rectangular_dilation(torch.ones((4, 4, 4)), structure)
 
 
-def test_cuda_never_silently_falls_back(monkeypatch):
-    torch = pytest.importorskip("torch")
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    with pytest.raises(RuntimeError, match="CUDA is unavailable"):
-        rectangular_dilation(np.ones((3, 3, 3)), np.ones((2, 2, 2)), "cuda")
-
-
-def test_unknown_backend():
-    with pytest.raises(ValueError, match="Unknown dilation"):
-        rectangular_dilation(np.ones((3, 3, 3)), np.ones((2, 2, 2)), "typo")
-
-
-def test_pipeline_forwards_backend(tmp_path, monkeypatch):
+@pytest.mark.parametrize("device", ["cpu", "cuda", None])
+def test_pipeline_forwards_device(tmp_path, monkeypatch, device):
     from caideface.pipeline import DefacePipeline
     import caideface.pipeline as pipeline
     seen = {}
@@ -66,18 +63,21 @@ def test_pipeline_forwards_backend(tmp_path, monkeypatch):
         seen.update(kwargs)
         return "done"
 
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA device unavailable")
+    monkeypatch.setattr(pipeline, "get_default_device", lambda: "cpu")
     monkeypatch.setattr(pipeline, "skull_strip_batch", fake_strip)
-    p = DefacePipeline("brainsfit", "brainsresample", dilation_backend="cpu")
+    p = DefacePipeline("brainsfit", "brainsresample", device=device)
     result = p.run(str(tmp_path), str(tmp_path / "out"), steps="skull_strip")
     assert result["skull_strip_log"] == "done"
-    assert seen["dilation_backend"] == "cpu"
-    assert DefacePipeline("brainsfit", "brainsresample").dilation_backend == "cpu"
+    assert seen["device"] == (device or "cpu")
+    assert DefacePipeline("brainsfit", "brainsresample", device="cpu").device == "cpu"
 
 
-@pytest.mark.parametrize("backend", ["cpu", "cuda"])
-def test_random_shapes_and_numeric_inputs(backend):
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_random_shapes_and_numeric_inputs(device):
     from caideface.skull_strip import get_safe_structuring_element
-    if backend == "cuda":
+    if device == "cuda":
         torch = pytest.importorskip("torch")
         if not torch.cuda.is_available():
             pytest.skip("CUDA device unavailable")
@@ -90,7 +90,7 @@ def test_random_shapes_and_numeric_inputs(backend):
         volume[0, 0, 0] = np.nan
         structure = get_safe_structuring_element(tuple(rng.uniform(1, 4, size=3)))
         np.testing.assert_array_equal(
-            rectangular_dilation(volume, structure, backend),
+            dilate_numpy(volume, structure, device),
             binary_dilation(volume, structure=structure),
         )
 
@@ -112,18 +112,23 @@ def test_cuda_preflight_before_extraction(tmp_path, monkeypatch, entry, failure)
     monkeypatch.setattr(ss, "_extract_brain_hdbet", unexpected)
     with pytest.raises(RuntimeError, match="CUDA"):
         if entry == "pipeline":
-            DefacePipeline("fit", "resample", dilation_backend="cuda")
+            DefacePipeline("fit", "resample", device="cuda")
         elif entry == "batch":
-            ss.skull_strip_batch(str(tmp_path), str(tmp_path / "out"), dilation_backend="cuda")
+            ss.skull_strip_batch(str(tmp_path), str(tmp_path / "out"), device="cuda")
         else:
             ss.skull_strip_single(str(tmp_path / "scan.nii.gz"), str(tmp_path),
-                                  str(tmp_path / "out"), dilation_backend="cuda")
+                                  str(tmp_path / "out"), device="cuda")
     assert not (tmp_path / "out").exists()
 
 
-def test_batch_saves_exact_separable_mask(tmp_path, monkeypatch):
+@pytest.mark.parametrize("selected_device", ["cpu", "cuda", None])
+def test_batch_saves_exact_separable_mask(tmp_path, monkeypatch, selected_device):
     import nibabel as nib
     import caideface.skull_strip as ss
+    expected_device = selected_device or "cuda"
+    if expected_device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA device unavailable")
+    monkeypatch.setattr(ss, "get_default_device", lambda: "cuda")
     inputs = tmp_path / "inputs"
     inputs.mkdir()
     data = np.zeros((8, 9, 10), dtype=np.float32)
@@ -132,19 +137,19 @@ def test_batch_saves_exact_separable_mask(tmp_path, monkeypatch):
     scan = inputs / "scan.nii.gz"
     nib.save(nib.Nifti1Image(data, affine), scan)
     monkeypatch.setattr(ss, "_hd_bet_executable", lambda: "stub")
-    def extract(source, output, *args):
+    def extract(source, output, device, *args):
+        assert device == expected_device
         nib.save(nib.load(source), output)
     monkeypatch.setattr(ss, "_extract_brain_hdbet", extract)
     actual_dilation = ss.rectangular_dilation
     seen = []
-    def dilation(volume, structure, backend):
-        seen.append(backend)
-        return actual_dilation(volume, structure, backend)
+    def dilation(volume, structure):
+        seen.append(volume.device.type)
+        return actual_dilation(volume, structure)
     monkeypatch.setattr(ss, "rectangular_dilation", dilation)
     out = tmp_path / "out"
-    result = ss.skull_strip_batch(str(inputs), str(out), device="cpu",
-                                dilation_backend="cpu")
-    assert seen == ["cpu"]
+    result = ss.skull_strip_batch(str(inputs), str(out), device=selected_device)
+    assert seen == [expected_device]
     assert result.iloc[0]["mask"] == "success"
     masks = list(out.glob("*mask.nii.gz"))
     assert len(masks) == 1
@@ -154,18 +159,11 @@ def test_batch_saves_exact_separable_mask(tmp_path, monkeypatch):
 
 def test_default_cpu_without_cuda(monkeypatch):
     import torch
-    from caideface.morphology import validate_dilation_backend
+    from caideface.morphology import validate_device
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    validate_dilation_backend("cpu")
+    validate_device("cpu")
     volume = np.zeros((3, 4, 5), dtype=np.uint8)
     volume[1, 2, 3] = 1
     structure = np.ones((2, 3, 4), dtype=np.uint8)
-    np.testing.assert_array_equal(rectangular_dilation(volume, structure),
+    np.testing.assert_array_equal(dilate_numpy(volume, structure),
                                   binary_dilation(volume, structure=structure))
-
-
-@pytest.mark.parametrize("backend", ["scipy", "separable_cpu"])
-def test_removed_backends_rejected(backend):
-    from caideface.morphology import validate_dilation_backend
-    with pytest.raises(ValueError, match="Unknown dilation backend"):
-        validate_dilation_backend(backend)
