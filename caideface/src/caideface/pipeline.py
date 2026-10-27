@@ -6,9 +6,8 @@ import os
 import pandas as pd
 
 from .reorient import reorient_batch
-from .skull_strip import skull_strip_batch, get_default_device
+from .skull_strip import skull_strip_batch
 from .register import deface_batch
-from .morphology import validate_device
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +52,7 @@ class DefacePipeline:
         self.brainsfit_path = brainsfit_path
         self.brainsresample_path = brainsresample_path
         self.modality = modality
-        self.device = get_default_device() if device is None else device
-        validate_device(self.device)
+        self.device = device
         self.disable_tta = disable_tta
         self.desired_dilation_mm = desired_dilation_mm
         self.background_value = background_value

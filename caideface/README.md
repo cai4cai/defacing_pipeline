@@ -141,7 +141,7 @@ This creates three subdirectories under `./output`:
 | `--steps` | `all` | Run specific steps: `reorient`, `skull_strip`, `deface` (comma-separated) |
 | `-v` | off | Verbose/debug logging |
 
-### Optional faster rectangular dilation
+### Faster rectangular dilation
 
 `run` and `skull-strip` use the existing `--device cpu|cuda` option for both
 brain extraction and dilation. When omitted, CUDA is selected if available,
@@ -151,8 +151,10 @@ Dilation replaces one full 3D box operation with three successive 1D pooling
 passes along X, Y and Z. The result is identical for a solid rectangular box,
 including SciPy's origin convention for even kernels and zero-valued image
 boundaries. Pooling runs on the mask tensor's device; the saved mask is returned
-to host memory. The selected device is checked before extraction, with no silent
-CPU fallback.
+to host memory. The device is checked once when the skull-stripping batch starts.
+Automatic CUDA selection falls back to CPU with a warning if the probe fails;
+explicit CUDA requests fail early. If dilation runs out of GPU memory, that mask
+is retried on CPU with a warning. Other per-file failures remain in the batch log.
 
 This equivalence concerns dilation given the same input mask. Switching HD-BET
 between CPU and CUDA can change its output, and registration can introduce

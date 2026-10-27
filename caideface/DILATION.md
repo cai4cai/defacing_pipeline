@@ -2,25 +2,44 @@
 
 ## Current implementation: public synthetic comparison
 
-| Method | Median dilation time (one mask, 3 rounds) | Speedup relative to main |
+| Method | Median dilation time (one mask, 5 rounds) | Speedup relative to main |
 |---|---:|---:|
-| Original full 3D SciPy dilation | 0.531 s | 1× |
-| PyTorch separable CPU | 0.0319 s | about 17× |
-| PyTorch separable CUDA | 0.00198 s | about 270× |
+| Original full 3D SciPy dilation | 0.368 s | 1× |
+| PyTorch separable CPU | 0.0227 s | about 16× |
+| PyTorch separable CUDA | 0.000444 s | about 830× |
 
 A solid ellipsoid in a 96×96×64 array, radii one third of each dimension,
-14×14×14 kernel, RTX 5090 / Intel Core Ultra 9 285K. Three randomised timed
+14×14×14 kernel, RTX 5090 / Intel Core Ultra 9 285K. Five randomised timed
 rounds after warm-up; every output matched SciPy exactly. CPU quota: two cores;
-`OMP_NUM_THREADS=2 MKL_NUM_THREADS=2`. CUDA times ranged from 1.34–3.53 ms.
-These are indicative dilation-only timings on a shared workstation, not
-whole-pipeline speedups. Transfers are included; import, initialisation, warm-up,
-input construction and equality checks are excluded. Preflight took 0.19 s.
+`--threads 2` (effective intra-op threads: 2, inter-op threads: 24).
+CUDA times ranged from 0.395–0.662 ms. These are indicative dilation-only timings
+on a shared workstation, not whole-pipeline speedups. Transfers are included;
+import, initialisation, warm-up, input construction and equality checks are
+excluded. Device preflight took 0.12 s.
 Versions: NumPy 1.26.4, SciPy 1.15.3, PyTorch 2.10.0+cu128.
 
-CPU thread settings matter: an initial run with unrestricted thread counts under
-the same two-core quota took about 0.70 s for PyTorch CPU versus 0.53 s for SciPy.
+CPU thread settings matter: an earlier run with unrestricted thread counts under
+a two-core quota took about 0.70 s for PyTorch CPU versus 0.53 s for SciPy.
 Match thread counts to available resources when benchmarking; the library does
-not change process-wide thread settings.
+not change process-wide thread settings. The benchmark records effective thread
+counts, package versions, GPU name and per-call CUDA peak allocated bytes.
+
+## CUDA memory comparison
+
+The previous float32 implementation versus half-precision CUDA pooling with
+implicit padding for odd kernels, on an RTX 4090 (PyTorch 2.10.0+cu128):
+
+| Volume / kernel | Previous peak | Revised peak | Reduction |
+|---|---:|---:|---:|
+| 512×512×400 / 28×28×14 | 2,122 MiB | 1,511 MiB | 29% |
+| 256×256×192 / 15×15×15 | 256 MiB | 156 MiB | 39% |
+
+Synthetic central cuboids; one warm-up and three timed calls per method. All
+outputs matched the previous implementation exactly. Peak PyTorch allocated GPU
+memory includes the resident uint8 input and intermediates; it excludes cached
+reserved memory and other processes. For the larger case, median pooling time
+fell from 15.3 ms to 12.4 ms; timings exclude transfers and equality checks.
+CUDA memory remains appreciable, so allocation failure has a logged CPU retry.
 
 ## Historical six-mask comparison
 
@@ -63,18 +82,25 @@ API uses `device`; there is no separate dilation selector. The pooling function
 accepts a tensor and returns a boolean tensor on that same device. The pipeline
 transfers the boolean mask to the host for saving (one byte per voxel).
 
-Both devices use the same separable float32 pooling implementation. Intermediate
-and padded tensors require substantially more memory than a boolean mask; allow
-several float32 volume copies plus padding and memory used by other stages.
+Both devices use separable pooling: float32 on CPU and float16 on CUDA. Binary
+values 0 and 1 are exactly representable in either dtype. Odd kernels use implicit
+padding; even kernels retain asymmetric explicit padding for the original origin.
+Intermediate tensors still require more memory than a boolean mask.
 CUDA respects `CUDA_VISIBLE_DEVICES`. The tensor operation has no CPU/CUDA
 allowlist, but other devices such as MPS are not validated for the complete
 extraction pipeline; the CLI retains its existing CPU/CUDA choices.
 
-Pipeline construction and skull-stripping entry points exercise a small pooling
-operation on the selected device before extraction. Failures propagate rather
-than falling back to CPU. This does not guarantee sufficient memory for a full
-volume: later per-file failures retain existing pipeline error handling and must
-be checked in the processing log.
+Device resolution and a pooling probe happen once at skull-stripping batch entry,
+not during pipeline construction or once per file. Automatic CUDA selection falls
+back to CPU with a warning if the probe fails; explicit CUDA requests fail early.
+A CUDA out-of-memory error during mask transfer or dilation retries that mask on
+CPU with a warning, using the retained host mask and the same pooling algorithm.
+Other errors remain per-file failures, allowing the batch to continue and write
+its status CSV. A CPU retry still requires enough host RAM. Direct single-file
+calls use their supplied device and retain per-file exception handling.
+
+PyTorch imports in the dilation and skull-stripping modules are deferred until
+imaging work needs them. Other package dependencies may independently load torch.
 
 HD-BET, BRAINSFit and serial processing remain unchanged. Exactness concerns
 dilation of the same input mask, not equivalence of different extraction or
@@ -87,7 +113,7 @@ For a public synthetic comparison, run from the `caideface/` directory with the
 package installed:
 
 ```bash
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 python benchmarks/dilation.py --shape 96 96 64 --kernel 14 14 14 --repeats 3 --pattern ellipsoid --cuda
+python benchmarks/dilation.py --shape 96 96 64 --kernel 14 14 14 --repeats 5 --pattern ellipsoid --threads 2 --cuda
 ```
 
 The `ellipsoid` pattern is a centred solid blob with radii one third of each

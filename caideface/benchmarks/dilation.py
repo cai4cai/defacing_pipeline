@@ -5,6 +5,7 @@ import time
 
 import numpy as np
 import torch
+import scipy
 from scipy.ndimage import binary_dilation
 
 from caideface.morphology import rectangular_dilation, validate_device
@@ -16,10 +17,15 @@ def main():
     parser.add_argument("--kernel", type=int, nargs=3, default=(14, 14, 14))
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--cuda", action="store_true")
+    parser.add_argument("--threads", type=int, help="PyTorch CPU threads for this benchmark process")
     parser.add_argument("--pattern", choices=("random", "ellipsoid"), default="random")
     args = parser.parse_args()
     if min(*args.shape, *args.kernel, args.repeats) < 1:
         parser.error("Dimensions and repeats must be positive")
+    if args.threads is not None:
+        if args.threads < 1:
+            parser.error("--threads must be positive")
+        torch.set_num_threads(args.threads)
     rng = np.random.default_rng(42)
     if args.pattern == "random":
         mask = rng.random(args.shape) < 0.01
@@ -43,17 +49,29 @@ def main():
 
     reference = dilate("scipy")
     timings = {method: [] for method in methods}
+    cuda_peak_allocated = []
     for method in methods:
         dilate(method)
     for _ in range(args.repeats):
         for method in rng.permutation(methods):
+            if method == "cuda":
+                torch.cuda.reset_peak_memory_stats()
             start = time.perf_counter()
             actual = dilate(method)
             elapsed = time.perf_counter() - start
             np.testing.assert_array_equal(actual, reference)
             timings[method].append(elapsed)
+            if method == "cuda":
+                cuda_peak_allocated.append(torch.cuda.max_memory_allocated())
     print(json.dumps({"shape": args.shape, "kernel": args.kernel,
                       "seed": 42, "pattern": args.pattern,
+                      "torch_threads": torch.get_num_threads(),
+                      "torch_interop_threads": torch.get_num_interop_threads(),
+                      "torch_version": torch.__version__,
+                      "numpy_version": np.__version__,
+                      "scipy_version": scipy.__version__,
+                      "cuda_peak_allocated_bytes": cuda_peak_allocated,
+                      "cuda_device": torch.cuda.get_device_name() if args.cuda else None,
                       "foreground_fraction": float(mask.mean()),
                       "preflight_seconds": startup,
                       "dilation_seconds": timings}, indent=2))

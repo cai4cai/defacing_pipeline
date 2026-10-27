@@ -8,7 +8,6 @@ import logging
 import nibabel as nib
 import numpy as np
 import pandas as pd
-import torch
 from .morphology import rectangular_dilation, validate_device
 
 logger = logging.getLogger(__name__)
@@ -16,11 +15,42 @@ logger = logging.getLogger(__name__)
 
 def get_default_device() -> str:
     """Return 'cuda' if a GPU is available, else 'cpu'."""
+    import torch
+
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def resolve_device(device):
+    """Validate once at batch entry, recovering to CPU only for auto-selection."""
+    automatic = device is None
+    selected = get_default_device() if automatic else device
     try:
-        import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    except ImportError:
-        return "cuda" if os.system("nvidia-smi > /dev/null 2>&1") == 0 else "cpu"
+        validate_device(selected)
+    except RuntimeError:
+        if not automatic or selected != "cuda":
+            raise
+        logger.warning("Automatically selected CUDA device cannot run dilation; using CPU", exc_info=True)
+        selected = "cpu"
+        validate_device(selected)
+    return selected
+
+
+def _dilate_mask(binary_volume, structure, device):
+    """Retry only CUDA allocation failures on CPU, using the retained host mask."""
+    import torch
+
+    def run(selected_device):
+        tensor = torch.as_tensor(binary_volume, device=selected_device)
+        return rectangular_dilation(tensor, structure).cpu().numpy()
+
+    try:
+        return run(device)
+    except torch.cuda.OutOfMemoryError:
+        if torch.device(device).type != "cuda":
+            raise
+        logger.warning("CUDA memory exhausted during dilation; retrying this mask on CPU")
+    # Leave the exception scope to release its traceback and intermediate tensors.
+    return run("cpu")
 
 
 def _hd_bet_executable() -> str:
@@ -191,7 +221,6 @@ def skull_strip_single(
     dict
         Status dict with keys: input, output, brain_extract, mask, dilated.
     """
-    validate_device(device)
     filename = os.path.basename(input_file)
     stem = filename.replace(".nii.gz", "")
     subfolder = os.path.relpath(os.path.dirname(input_file), start=input_root)
@@ -243,8 +272,7 @@ def skull_strip_single(
 
             voxel_sizes = img.header.get_zooms()[:3]
             struct_elem = get_safe_structuring_element(voxel_sizes, desired_dilation_mm)
-            mask_tensor = torch.as_tensor(binary_volume, device=device)
-            dilated_data = rectangular_dilation(mask_tensor, struct_elem).cpu().numpy()
+            dilated_data = _dilate_mask(binary_volume, struct_elem, device)
 
             nib.save(nib.Nifti1Image(dilated_data, img.affine, img.header), mask_file)
             status["mask"] = "success" if os.path.exists(mask_file) else "failed"
@@ -311,9 +339,7 @@ def skull_strip_batch(
     pd.DataFrame
         Processing log.
     """
-    if device is None:
-        device = get_default_device()
-    validate_device(device)
+    device = resolve_device(device)
 
     # Validate brain extraction is available
     if modality == "mri":

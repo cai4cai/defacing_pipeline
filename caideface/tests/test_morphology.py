@@ -37,13 +37,17 @@ def test_rectangular_parity(device, kernel, pattern):
     np.testing.assert_array_equal(actual, binary_dilation(volume, structure=structure))
 
 
-def test_noncontiguous_input():
-    volume = np.arange(60).reshape(3, 4, 5)[::-1, :, ::-1] % 11 == 0
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_noncontiguous_input(device):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA device unavailable")
+    tensor = torch.arange(120, device=device).reshape(4, 5, 6).transpose(0, 2)[:, ::2, :]
+    assert not tensor.is_contiguous()
     structure = np.ones((2, 3, 4), dtype=bool)
-    np.testing.assert_array_equal(
-        dilate_numpy(volume, structure, "cpu"),
-        binary_dilation(volume, structure=structure),
-    )
+    actual = rectangular_dilation(tensor, structure)
+    assert actual.device == tensor.device
+    np.testing.assert_array_equal(actual.cpu().numpy(),
+                                  binary_dilation(tensor.cpu().numpy(), structure=structure))
 
 
 def test_reject_nonrectangular_structure():
@@ -65,12 +69,11 @@ def test_pipeline_forwards_device(tmp_path, monkeypatch, device):
 
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA device unavailable")
-    monkeypatch.setattr(pipeline, "get_default_device", lambda: "cpu")
     monkeypatch.setattr(pipeline, "skull_strip_batch", fake_strip)
     p = DefacePipeline("brainsfit", "brainsresample", device=device)
     result = p.run(str(tmp_path), str(tmp_path / "out"), steps="skull_strip")
     assert result["skull_strip_log"] == "done"
-    assert seen["device"] == (device or "cpu")
+    assert seen["device"] == device
     assert DefacePipeline("brainsfit", "brainsresample", device="cpu").device == "cpu"
 
 
@@ -95,9 +98,8 @@ def test_random_shapes_and_numeric_inputs(device):
         )
 
 
-@pytest.mark.parametrize("entry", ["pipeline", "batch", "single"])
 @pytest.mark.parametrize("failure", ["unavailable", "kernel"])
-def test_cuda_preflight_before_extraction(tmp_path, monkeypatch, entry, failure):
+def test_cuda_preflight_before_extraction(tmp_path, monkeypatch, failure):
     import caideface.skull_strip as ss
     from caideface.pipeline import DefacePipeline
     torch = pytest.importorskip("torch")
@@ -111,13 +113,7 @@ def test_cuda_preflight_before_extraction(tmp_path, monkeypatch, entry, failure)
     monkeypatch.setattr(ss, "_hd_bet_executable", unexpected)
     monkeypatch.setattr(ss, "_extract_brain_hdbet", unexpected)
     with pytest.raises(RuntimeError, match="CUDA"):
-        if entry == "pipeline":
-            DefacePipeline("fit", "resample", device="cuda")
-        elif entry == "batch":
-            ss.skull_strip_batch(str(tmp_path), str(tmp_path / "out"), device="cuda")
-        else:
-            ss.skull_strip_single(str(tmp_path / "scan.nii.gz"), str(tmp_path),
-                                  str(tmp_path / "out"), device="cuda")
+        ss.skull_strip_batch(str(tmp_path), str(tmp_path / "out"), device="cuda")
     assert not (tmp_path / "out").exists()
 
 
