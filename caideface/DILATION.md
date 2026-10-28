@@ -95,7 +95,7 @@ extraction pipeline; the CLI retains its existing CPU/CUDA choices.
 
 Device resolution and a tiny dilation probe happen once at skull-stripping batch entry,
 not during pipeline construction or once per file. Automatic CUDA selection falls
-back to CPU with a warning if the probe reports a runtime capability failure; explicit CUDA requests fail early. Probe out-of-memory errors fail early even with automatic selection, so a temporary allocation failure does not move brain extraction to CPU.
+back to CPU with a warning if the probe reports a recognised missing-kernel/build capability failure; explicit CUDA requests fail early. Probe out-of-memory errors fail early even with automatic selection, so a temporary allocation failure does not move brain extraction to CPU.
 A CUDA out-of-memory error during mask transfer or dilation retries that mask on
 CPU with a warning, using the retained host mask and the same boolean algorithm.
 Unused CUDA cache is released after dilation and before a CPU retry, once temporary tensors are gone. The CUDA context and other live tensors remain allocated. Later masks still attempt their selected device because their memory requirements may differ.
@@ -127,3 +127,30 @@ Mask geometry affects runtime; neither synthetic pattern represents every scan.
 Omit `--cuda` for CPU-only testing. The script reports exact dimensions, individual
 call times and device preflight time (excluding torch import), checks equality outside the timer, and warms each method before
 randomising timed call order. It does not reproduce the private six-mask table.
+
+## Process sharing and CPU quotas
+
+CUDA dilation creates a context in the parent process; HD-BET uses a separate
+process. Clearing the allocator cache does not release that context. The combined
+CUDA workflow requires a device that permits both processes, with sufficient
+memory for both contexts. Exclusive-process compute mode is not validated or
+supported by this workflow. Use `--device cpu` on such systems, or arrange a GPU
+allocation that permits multiple processes. CPU-only dilation with GPU extraction
+is not currently a separate CLI option. The local GPUs used for validation were
+in Default mode; the earlier HD-BET CUDA-access failure has not been attributed
+to exclusive mode. No compute-mode settings were changed for testing.
+
+Set CPU thread limits explicitly in quota-limited containers, for example
+`OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 caideface run ... --device cpu` with four
+allocated CPU cores. In embedded Python, call `torch.set_num_threads(4)` before
+imaging work. Choose the count for the actual allocation; PyTorch defaults may
+reflect the host rather than the container quota. The library does not change
+process-wide thread settings. The public benchmark accepts `--threads` and
+records effective settings. Its reported timing outlier occurred with two threads
+and a two-core quota, so it does not itself prove thread oversubscription.
+
+Automatic CPU fallback is limited to recognised missing-kernel/build capability
+errors. Out-of-memory, device-busy and unrecognised runtime errors propagate at
+startup instead of moving extraction to CPU. Fully completed batch resumes skip
+device probing and extraction-tool checks, following the existing output-existence
+resume convention; this does not validate the contents of existing outputs.

@@ -150,11 +150,17 @@ otherwise CPU. The Python API uses the same `device` parameter.
 Dilation replaces one full 3D box operation with three successive 1D boolean-OR
 passes along X, Y and Z. The result is identical for a solid rectangular box,
 including SciPy's origin convention for even kernels and zero-valued image
-boundaries. Pooling runs on the mask tensor's device; the saved mask is returned
+boundaries. Boolean OR operations run on the mask tensor's device; the saved mask is returned
 to host memory. The device is checked once when the skull-stripping batch starts.
 Automatic CUDA selection falls back to CPU with a warning if the probe fails;
 explicit CUDA requests fail early. If dilation runs out of GPU memory, that mask
 is retried on CPU with a warning. Other per-file failures remain in the batch log.
+
+CUDA extraction and dilation use separate processes and require a GPU that allows
+multiple CUDA contexts; exclusive-process mode is unsupported. Use `--device cpu`
+in that environment. In CPU-quota-limited containers, set `OMP_NUM_THREADS` and
+`MKL_NUM_THREADS` to the allocated core count. See [DILATION.md](DILATION.md) for
+process-sharing limitations, thread settings and benchmark details.
 
 This equivalence concerns dilation given the same input mask. Switching HD-BET
 between CPU and CUDA can change its output, and registration can introduce

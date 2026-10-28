@@ -41,7 +41,7 @@ def test_automatic_cuda_failure_uses_cpu(monkeypatch, caplog):
 
 @pytest.mark.parametrize("at_transfer", [False, True])
 def test_dilation_oom_retries_cpu(monkeypatch, caplog, at_transfer):
-    if not torch.cuda.is_available():
+    if not at_transfer and not torch.cuda.is_available():
         pytest.skip("CUDA device unavailable")
     mask = np.zeros((8, 9, 10), dtype=np.uint8)
     mask[3, 4, 5] = 1
@@ -111,3 +111,28 @@ def test_imaging_module_import_does_not_load_torch(monkeypatch, module_name):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert callable(module.rectangular_dilation)
+
+
+def test_transient_probe_error_does_not_change_extraction_device(monkeypatch):
+    monkeypatch.setattr(ss, "get_default_device", lambda: "cuda")
+    def busy(device):
+        raise RuntimeError("CUDA device busy or unavailable")
+    monkeypatch.setattr(ss, "validate_device", busy)
+    with pytest.raises(RuntimeError, match="busy"):
+        ss.resolve_device(None)
+
+
+def test_completed_resume_does_not_probe_or_require_extraction(tmp_path, monkeypatch):
+    inputs = tmp_path / "in"
+    outputs = tmp_path / "out"
+    inputs.mkdir()
+    outputs.mkdir()
+    nib.save(nib.Nifti1Image(np.ones((3, 4, 5)), np.eye(4)), inputs / "scan.nii.gz")
+    for suffix in ("_brain.nii.gz", "_mask.nii.gz", "_dilated.nii.gz"):
+        (outputs / ("scan" + suffix)).touch()
+    def forbidden(*args):
+        pytest.fail("Completed resume must not probe CUDA or extraction tools")
+    monkeypatch.setattr(ss, "resolve_device", forbidden)
+    monkeypatch.setattr(ss, "_hd_bet_executable", forbidden)
+    result = ss.skull_strip_batch(str(inputs), str(outputs), device="cuda")
+    assert result.iloc[0]["mask"] == "skipped"

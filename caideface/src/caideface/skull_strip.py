@@ -30,8 +30,12 @@ def resolve_device(device):
         validate_device(selected)
     except torch.cuda.OutOfMemoryError:
         raise
-    except RuntimeError:
-        if not automatic or selected != "cuda":
+    except RuntimeError as exc:
+        capability_error = any(message in str(exc).lower() for message in (
+            "no kernel image", "not compiled with cuda", "cuda is unavailable",
+            "not implemented for", "invalid device function",
+        ))
+        if not automatic or selected != "cuda" or not capability_error:
             raise
         logger.warning("Automatically selected CUDA device cannot run dilation; using CPU", exc_info=True)
         selected = "cpu"
@@ -347,19 +351,29 @@ def skull_strip_batch(
     pd.DataFrame
         Processing log.
     """
-    device = resolve_device(device)
+    # A completed resume needs neither extraction tools nor a CUDA context.
+    inputs = [os.path.join(root, name)
+              for root, _, names in os.walk(input_dir) for name in names
+              if is_valid_3d_volume(os.path.join(root, name))]
+    def completed(path):
+        folder = os.path.relpath(os.path.dirname(path), input_dir)
+        stem = os.path.basename(path).replace(".nii.gz", "")
+        return all(os.path.exists(os.path.join(output_dir, folder, stem + suffix))
+                   for suffix in ("_brain.nii.gz", "_mask.nii.gz", "_dilated.nii.gz"))
+    if not inputs or not all(completed(path) for path in inputs):
+        device = resolve_device(device)
 
-    # Validate brain extraction is available
-    if modality == "mri":
-        _hd_bet_executable()
-    elif modality == "ct":
-        try:
-            import totalsegmentator  # noqa: F401
-        except ImportError:
-            raise ImportError(
-                "TotalSegmentator is required for CT skull-stripping.\n"
-                "Install it with: pip install caideface[ct]"
-            )
+        # Validate brain extraction is available
+        if modality == "mri":
+            _hd_bet_executable()
+        elif modality == "ct":
+            try:
+                import totalsegmentator  # noqa: F401
+            except ImportError:
+                raise ImportError(
+                    "TotalSegmentator is required for CT skull-stripping.\n"
+                    "Install it with: pip install caideface[ct]"
+                )
 
     input_dir = os.path.abspath(input_dir)
     output_dir = os.path.abspath(output_dir)
