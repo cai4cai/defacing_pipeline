@@ -163,3 +163,22 @@ def test_default_cpu_without_cuda(monkeypatch):
     structure = np.ones((2, 3, 4), dtype=np.uint8)
     np.testing.assert_array_equal(dilate_numpy(volume, structure),
                                   binary_dilation(volume, structure=structure))
+
+
+@pytest.mark.parametrize('device', ['cpu', 'cuda'])
+def test_result_allows_inplace_updates(device):
+    if device == 'cuda' and not torch.cuda.is_available():
+        pytest.skip('CUDA device unavailable')
+    result = rectangular_dilation(torch.ones((3, 4, 5), device=device), np.ones((2, 3, 4)))
+    result.logical_not_()
+    assert not result.any().item()
+
+
+def test_auto_probe_oom_does_not_move_extraction_to_cpu(monkeypatch):
+    import caideface.skull_strip as ss
+    monkeypatch.setattr(ss, 'get_default_device', lambda: 'cuda')
+    def oom(device):
+        raise torch.cuda.OutOfMemoryError('probe allocation failed')
+    monkeypatch.setattr(ss, 'validate_device', oom)
+    with pytest.raises(torch.cuda.OutOfMemoryError):
+        ss.resolve_device(None)

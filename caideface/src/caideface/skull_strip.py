@@ -22,10 +22,14 @@ def get_default_device() -> str:
 
 def resolve_device(device):
     """Validate once at batch entry, recovering to CPU only for auto-selection."""
+    import torch
+
     automatic = device is None
     selected = get_default_device() if automatic else device
     try:
         validate_device(selected)
+    except torch.cuda.OutOfMemoryError:
+        raise
     except RuntimeError:
         if not automatic or selected != "cuda":
             raise
@@ -44,12 +48,16 @@ def _dilate_mask(binary_volume, structure, device):
         return rectangular_dilation(tensor, structure).cpu().numpy()
 
     try:
-        return run(device)
+        result = run(device)
+        if torch.device(device).type == "cuda":
+            torch.cuda.empty_cache()
+        return result
     except torch.cuda.OutOfMemoryError:
         if torch.device(device).type != "cuda":
             raise
         logger.warning("CUDA memory exhausted during dilation; retrying this mask on CPU")
     # Leave the exception scope to release its traceback and intermediate tensors.
+    torch.cuda.empty_cache()
     return run("cpu")
 
 

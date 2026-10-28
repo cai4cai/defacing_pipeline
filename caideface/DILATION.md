@@ -1,45 +1,48 @@
 # Exact rectangular dilation
 
-## Current implementation: public synthetic comparison
+## Boolean implementation
+
+Dilation now uses exact shifted boolean OR operations on the input tensor's device.
+This avoids max pooling's floating-point volumes and internal indices on CPU.
+
+A fixed-input comparison across 687 precomputed masks (four CPU threads, RTX 5090,
+PyTorch 2.10.0) measured the following totals, excluding input loading and including
+CUDA transfers. All outputs matched the separable SciPy reference exactly.
+These private inputs are not distributed; the results are indicative, not a
+reproducible public benchmark or a whole-pipeline speedup.
+
+| Method | Total dilation time | Peak CUDA allocation |
+|---|---:|---:|
+| Separable SciPy maximum filter | 66.4 s | — |
+| Previous PyTorch CPU max pooling | 619 s | — |
+| Boolean PyTorch CPU | 39.6 s | — |
+| Previous PyTorch CUDA max pooling | 3.78 s | 1,043 MiB |
+| Boolean PyTorch CUDA | 3.89 s | 210 MiB |
+
+In a 12-input pipeline comparison with registration unchanged, separable SciPy
+dilation accounted for 1.16 seconds of approximately 800 seconds total. CUDA saved
+less than one second in this stage. The major benefit over main remains replacing
+full 3D dilation with separable passes, not moving already-separable CPU dilation
+to CUDA. The boolean implementation keeps a shared PyTorch path with lower memory
+use and faster CPU execution on this workload. Other workloads may rank differently.
+
+## Public synthetic comparison (current boolean implementation)
 
 | Method | Median dilation time (one mask, 5 rounds) | Speedup relative to main |
 |---|---:|---:|
-| Original full 3D SciPy dilation | 0.368 s | 1× |
-| PyTorch separable CPU | 0.0227 s | about 16× |
-| PyTorch separable CUDA | 0.000444 s | about 830× |
+| Original full 3D SciPy dilation | 0.393 s | 1× |
+| Boolean PyTorch CPU | 0.00213 s | about 180× |
+| Boolean PyTorch CUDA | 0.000542 s | about 730× |
 
-A solid ellipsoid in a 96×96×64 array, radii one third of each dimension,
-14×14×14 kernel, RTX 5090 / Intel Core Ultra 9 285K. Five randomised timed
-rounds after warm-up; every output matched SciPy exactly. CPU quota: two cores;
-`--threads 2` (effective intra-op threads: 2, inter-op threads: 24).
-CUDA times ranged from 0.395–0.662 ms. These are indicative dilation-only timings
-on a shared workstation, not whole-pipeline speedups. Transfers are included;
-import, initialisation, warm-up, input construction and equality checks are
-excluded. Device preflight took 0.12 s.
-Versions: NumPy 1.26.4, SciPy 1.15.3, PyTorch 2.10.0+cu128.
-
-CPU thread settings matter: an earlier run with unrestricted thread counts under
-a two-core quota took about 0.70 s for PyTorch CPU versus 0.53 s for SciPy.
-Match thread counts to available resources when benchmarking; the library does
-not change process-wide thread settings. The benchmark records effective thread
-counts, package versions, GPU name and per-call CUDA peak allocated bytes.
-
-## CUDA memory comparison
-
-The previous float32 implementation versus half-precision CUDA pooling with
-implicit padding for odd kernels, on an RTX 4090 (PyTorch 2.10.0+cu128):
-
-| Volume / kernel | Previous peak | Revised peak | Reduction |
-|---|---:|---:|---:|
-| 512×512×400 / 28×28×14 | 2,122 MiB | 1,511 MiB | 29% |
-| 256×256×192 / 15×15×15 | 256 MiB | 156 MiB | 39% |
-
-Synthetic central cuboids; one warm-up and three timed calls per method. All
-outputs matched the previous implementation exactly. Peak PyTorch allocated GPU
-memory includes the resident uint8 input and intermediates; it excludes cached
-reserved memory and other processes. For the larger case, median pooling time
-fell from 15.3 ms to 12.4 ms; timings exclude transfers and equality checks.
-CUDA memory remains appreciable, so allocation failure has a logged CPU retry.
+Solid ellipsoid, 96×96×64 array, radii one third of each dimension, 14³ kernel;
+RTX 5090, two CPU cores and two torch threads (24 inter-op threads).
+PyTorch 2.10.0+cu128, NumPy 1.26.4, SciPy 1.15.3. Five randomised rounds after
+warm-up; all outputs matched. Transfers included; loading, imports, initialisation
+and equality checks excluded. Preflight: 0.154 s. CPU times ranged from 0.00094 to
+0.116 s, including a scheduling outlier; CUDA ranged from 0.00043 to 0.00073 s.
+These are indicative dilation-only measurements on a shared machine, not
+whole-pipeline speedups or precise performance guarantees. Thread settings and
+mask geometry matter; the benchmark records both and does not alter library defaults.
 
 ## Historical six-mask comparison
 
@@ -78,23 +81,24 @@ each axis. These are theoretical work reductions, not measured runtime speedups.
 
 The existing `--device cpu|cuda` option controls both brain extraction and dilation.
 If omitted, the pipeline selects CUDA when available, otherwise CPU. The Python
-API uses `device`; there is no separate dilation selector. The pooling function
+API uses `device`; there is no separate dilation selector. The dilation function
 accepts a tensor and returns a boolean tensor on that same device. The pipeline
 transfers the boolean mask to the host for saving (one byte per voxel).
 
-Both devices use separable pooling: float32 on CPU and float16 on CUDA. Binary
-values 0 and 1 are exactly representable in either dtype. Odd kernels use implicit
-padding; even kernels retain asymmetric explicit padding for the original origin.
-Intermediate tensors still require more memory than a boolean mask.
+Both devices use three separable boolean-OR passes over shifted slices. No floating
+point conversion, pooling indices or padded volume is needed. Even-sized kernels
+retain SciPy's asymmetric origin. The result is an ordinary mutable boolean tensor.
+
 CUDA respects `CUDA_VISIBLE_DEVICES`. The tensor operation has no CPU/CUDA
 allowlist, but other devices such as MPS are not validated for the complete
 extraction pipeline; the CLI retains its existing CPU/CUDA choices.
 
-Device resolution and a pooling probe happen once at skull-stripping batch entry,
+Device resolution and a tiny dilation probe happen once at skull-stripping batch entry,
 not during pipeline construction or once per file. Automatic CUDA selection falls
-back to CPU with a warning if the probe fails; explicit CUDA requests fail early.
+back to CPU with a warning if the probe reports a runtime capability failure; explicit CUDA requests fail early. Probe out-of-memory errors fail early even with automatic selection, so a temporary allocation failure does not move brain extraction to CPU.
 A CUDA out-of-memory error during mask transfer or dilation retries that mask on
-CPU with a warning, using the retained host mask and the same pooling algorithm.
+CPU with a warning, using the retained host mask and the same boolean algorithm.
+Unused CUDA cache is released after dilation and before a CPU retry, once temporary tensors are gone. The CUDA context and other live tensors remain allocated. Later masks still attempt their selected device because their memory requirements may differ.
 Other errors remain per-file failures, allowing the batch to continue and write
 its status CSV. A CPU retry still requires enough host RAM. Direct single-file
 calls use their supplied device and retain per-file exception handling.

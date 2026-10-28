@@ -147,7 +147,7 @@ This creates three subdirectories under `./output`:
 brain extraction and dilation. When omitted, CUDA is selected if available,
 otherwise CPU. The Python API uses the same `device` parameter.
 
-Dilation replaces one full 3D box operation with three successive 1D pooling
+Dilation replaces one full 3D box operation with three successive 1D boolean-OR
 passes along X, Y and Z. The result is identical for a solid rectangular box,
 including SciPy's origin convention for even kernels and zero-valued image
 boundaries. Pooling runs on the mask tensor's device; the saved mask is returned
