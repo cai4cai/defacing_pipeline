@@ -24,7 +24,9 @@ dilation accounted for 1.16 seconds of approximately 800 seconds total. CUDA sav
 less than one second in this stage. The major benefit over main remains replacing
 full 3D dilation with separable passes, not moving already-separable CPU dilation
 to CUDA. The boolean implementation keeps a shared PyTorch path with lower memory
-use and faster CPU execution on this workload. Other workloads may rank differently.
+use and faster CPU execution on this workload. Other workloads may rank differently. GPU offloading may also help concurrency
+when CPU cores are scarce relative to available GPUs; this is a resource-allocation
+rationale, not a concurrency speedup established by these dilation benchmarks.
 
 ## Public synthetic comparison (current boolean implementation)
 
@@ -131,11 +133,13 @@ randomising timed call order. It does not reproduce the private six-mask table.
 ## Process sharing and CPU quotas
 
 CUDA dilation creates a context in the parent process; HD-BET uses a separate
-process. Clearing the allocator cache does not release that context. The combined
+process. Unlike main's CPU dilation, the parent now retains its own CUDA context
+while extraction runs. Clearing the allocator cache does not release that context. The combined
 CUDA workflow requires a device that permits both processes, with sufficient
 memory for both contexts. Exclusive-process compute mode is not validated or
 supported by this workflow. Use `--device cpu` on such systems, or arrange a GPU
-allocation that permits multiple processes. CPU-only dilation with GPU extraction
+allocation that permits multiple processes. The CPU workaround also moves HD-BET
+to CPU and can substantially slow extraction. CPU-only dilation with GPU extraction
 is not currently a separate CLI option. The local GPUs used for validation were
 in Default mode; the earlier HD-BET CUDA-access failure has not been attributed
 to exclusive mode. No compute-mode settings were changed for testing.
