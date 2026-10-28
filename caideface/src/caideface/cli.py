@@ -40,7 +40,7 @@ def main():
     run_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
     run_parser.add_argument("--brainsfit", required=True, help="Path to BRAINSFit executable")
     run_parser.add_argument("--brainsresample", required=True, help="Path to BRAINSResample executable")
-    run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET (auto-detected if omitted)")
+    run_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for brain extraction and dilation (auto-detected if omitted)")
     run_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable HD-BET test-time augmentation (default: disabled)")
     run_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Brain mask dilation in mm (default: 14)")
     run_parser.add_argument("--background", type=float, default=None, help="Background value for defaced voxels (auto-detected per volume if omitted)")
@@ -58,7 +58,7 @@ def main():
     ss_parser.add_argument("input_dir", help="Directory with reoriented NIfTI files")
     ss_parser.add_argument("output_dir", help="Output directory for skull-stripped results")
     ss_parser.add_argument("--modality", required=True, choices=["mri", "ct"], help="Image modality (required)")
-    ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for HD-BET")
+    ss_parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Device for brain extraction and dilation")
     ss_parser.add_argument("--no-tta", action="store_true", default=True, help="Disable test-time augmentation")
     ss_parser.add_argument("--dilation-mm", type=float, default=14.0, help="Dilation in mm")
 
