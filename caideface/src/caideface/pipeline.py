@@ -24,7 +24,7 @@ class DefacePipeline:
     modality : str
         Image modality: ``'mri'`` or ``'ct'``.
     device : str or None
-        'cpu' or 'cuda' for HD-BET. Auto-detected if None.
+        'cpu' or 'cuda' for brain extraction and dilation. Auto-detected if None.
     disable_tta : bool
         Disable HD-BET test-time augmentation for faster processing.
     desired_dilation_mm : float

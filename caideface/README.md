@@ -132,7 +132,7 @@ This creates three subdirectories under `./output`:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--modality` | *required* | Image modality: `mri` or `ct` |
-| `--device` | auto-detected | `cpu` or `cuda` for brain extraction |
+| `--device` | auto-detected | `cpu` or `cuda` for brain extraction and dilation |
 | `--no-tta` | on | Disable HD-BET test-time augmentation (MRI only) |
 | `--dilation-mm` | `14.0` | Brain mask dilation in mm |
 | `--background` | auto-detected | Background fill value (auto-detected per volume; override with explicit value) |
@@ -140,6 +140,37 @@ This creates three subdirectories under `./output`:
 | `--face-mask` | bundled | Custom face mask in template space |
 | `--steps` | `all` | Run specific steps: `reorient`, `skull_strip`, `deface` (comma-separated) |
 | `-v` | off | Verbose/debug logging |
+
+### Faster rectangular dilation
+
+`run` and `skull-strip` use the existing `--device cpu|cuda` option for both
+brain extraction and dilation. When omitted, CUDA is selected if available,
+otherwise CPU. The Python API uses the same `device` parameter.
+
+Dilation replaces one full 3D box operation with three successive 1D boolean-OR
+passes along X, Y and Z. The result is identical for a solid rectangular box,
+including SciPy's origin convention for even kernels and zero-valued image
+boundaries. Boolean OR operations run on the mask tensor's device; the saved mask is returned
+to host memory. The device is checked once when the skull-stripping batch starts,
+unless all expected outputs already exist. Automatic CUDA selection falls back
+to CPU with a warning only for recognised missing-kernel/build capability errors.
+Startup out-of-memory, device-busy and unrecognised errors propagate; explicit
+CUDA requests fail early. If dilation runs out of GPU memory, that mask is retried
+on CPU with a warning. Other per-file failures remain in the batch log.
+
+CUDA extraction and dilation use separate processes and require a GPU that allows
+multiple CUDA contexts; exclusive-process mode is unsupported. Unlike main's
+CPU dilation, this keeps a CUDA context in the parent while HD-BET runs in a
+subprocess, requiring additional GPU memory. The workaround, `--device cpu`, moves
+both dilation and HD-BET to CPU and can substantially slow extraction. In CPU-quota-limited containers, set `OMP_NUM_THREADS` and
+`MKL_NUM_THREADS` to the allocated core count. See [DILATION.md](DILATION.md) for
+process-sharing limitations, thread settings and benchmark details.
+
+This equivalence concerns dilation given the same input mask. Switching HD-BET
+between CPU and CUDA can change its output, and registration can introduce
+further differences. Review the resulting defacing outputs for your use case.
+
+See [DILATION.md](DILATION.md) for matched dilation benchmarks and limits.
 
 ### CLI -- Individual defacing steps
 
